@@ -1,0 +1,25 @@
+# Fase 1 - PROTOTIPO a 32x32 para el circuito de punta a punta de la fase 4.
+# Mismas semillas que ns_64.yaml: las trayectorias son las mismas condiciones
+# iniciales resueltas en malla gruesa.
+device: auto
+batch_size: 40         # lotes de 40: el chequeo de reproducibilidad repite un lote entero
+output_dir: artifacts/ns32
+spectrum_band: [3, 9]      # k_max util = 32/3 = 10, la banda es forzosamente corta
+
+simulation:
+  grid: 32
+  dt: 0.01
+  nu: 0.001
+  alpha: 0.1
+  forcing_wavenumber: 4
+  transient_steps: 2000
+  n_save: 200
+  save_every: 10
+  precision: float64
+  ic_peak_wavenumber: 4.0
+  ic_rms: 1.0
+
+splits:
+  train: {seed_base: 1000, n_traj: 200}
+  val:   {seed_base: 2000, n_traj: 40}
+  test:  {seed_base: 3000, n_traj: 40}
