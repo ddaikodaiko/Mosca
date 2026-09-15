@@ -1,0 +1,50 @@
+# Fase 4 - PROTOTIPO del portatil: N=500, malla 32x32, pocos pasos.
+# No es un resultado: sirve para comprobar que las dos fases corren y que las
+# metricas salen. El entrenamiento de verdad es configs/entrenamiento_64.yaml en GPU.
+#   python train.py --config configs/entrenamiento_32_proto.yaml
+device: auto
+data_dir: artifacts/ns32
+wiring_dir: artifacts/conectoma_500_proto
+output_dir: artifacts/train_32_proto
+grad_clip: 1.0
+
+max_trajectories: {train: 200, val: 40}   # el set ns32 completo
+
+core:
+  n_internal_steps: 4
+  spectral_radius: 0.95
+  normalisation: max_eig
+
+  leak: 1.0
+  output_scale: 0.1
+
+encoder:
+  n_complex_modes: 64      # 128 numeros reales
+  n_sensory: 128
+  n_motor: 128
+
+fno: {modes: 8, width: 16, n_layers: 3}
+
+phase_a:
+  steps: 4000
+  batch_size: 16
+  lr: 3.0e-3
+  eval_every: 500
+  patience: 3
+
+phase_b:
+  curriculum: [5]          # el curriculo completo (5, 10, 20) es para la GPU
+  steps_per_stage: 60
+  batch_size: 8
+  lr: 3.0e-4
+  eval_every: 20
+  patience: 3
+
+# Simetrias exactas del sistema: traslacion libre en x, y en y por periodos del forzado.
+augment:
+  enabled: true
+  forcing_wavenumber: 4
+
+eval_rollouts: [10, 50]
+models: [persistencia, mosca, aleatorio, fno]
+seeds: [0]

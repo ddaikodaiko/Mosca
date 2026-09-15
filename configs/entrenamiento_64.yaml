@@ -1,0 +1,46 @@
+# Fase 4 - configuracion REAL, para el PC con GPU. 6 modelos x 3 semillas.
+#   python train.py --config configs/entrenamiento_64.yaml
+device: auto
+data_dir: artifacts/ns64
+wiring_dir: artifacts/conectoma_4000
+output_dir: artifacts/train_64
+grad_clip: 1.0
+
+# sin recorte: las 200 trayectorias de entrenamiento
+
+core:
+  n_internal_steps: 4
+  spectral_radius: 0.95
+  leak: 1.0
+  output_scale: 0.1
+
+encoder:
+  n_complex_modes: 128    # 256 numeros reales
+  n_sensory: 256
+  n_motor: 256
+
+fno: {modes: 12, width: 32, n_layers: 4}
+
+phase_a:
+  steps: 20000
+  batch_size: 32
+  lr: 1.0e-3
+  eval_every: 500
+  patience: 8
+
+phase_b:
+  curriculum: [5, 10, 20]
+  steps_per_stage: 2000
+  batch_size: 16
+  lr: 3.0e-4
+  eval_every: 100
+  patience: 8
+
+# Simetrias exactas del sistema: traslacion libre en x, y en y por periodos del forzado.
+augment:
+  enabled: true
+  forcing_wavenumber: 4
+
+eval_rollouts: [10, 50]
+models: [persistencia, mosca, aleatorio, recableado, denso, fno]
+seeds: [0, 1, 2]

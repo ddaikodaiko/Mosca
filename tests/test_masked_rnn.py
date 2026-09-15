@@ -6,6 +6,8 @@ mascara siguen siendo EXACTAMENTE cero y ninguna neurona ha cambiado de signo.
 
 from __future__ import annotations
 
+import math
+
 from pathlib import Path
 
 import numpy as np
@@ -191,3 +193,70 @@ def test_los_tres_cableados_tienen_los_mismos_parametros_entrenables() -> None:
         model = ConnectomeFlowModel(wiring, grid=64)
         counts[name] = sum(p.numel() for p in model.parameters() if p.requires_grad)
     assert len(set(counts.values())) == 1, counts
+
+
+def test_la_normalizacion_de_entrada_saca_a_tanh_de_la_saturacion() -> None:
+    """Los coeficientes de Fourier de un campo de rms ~2 llegan a valer ~20: sin
+    normalizar, las neuronas sensoriales saturan y el gradiente se muere."""
+    wiring = toy_wiring(seed=9)
+    model = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8)
+    campo = torch.randn(64, 16, 16) * 2.2
+
+    crudo = model.encode(campo)
+    model.fit_feature_statistics(campo)
+    normalizado = model.encode(campo)
+
+    assert float(crudo.std()) > 1.5
+    assert abs(float(normalizado.std()) - 1.0) < 0.1
+    assert float(normalizado.mean().abs()) < 0.1
+
+
+def test_las_estadisticas_viajan_en_el_state_dict() -> None:
+    """Si no van en el checkpoint, el modelo evaluado no es el entrenado."""
+    wiring = toy_wiring(seed=10)
+    model = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8)
+    model.fit_feature_statistics(torch.randn(32, 16, 16) * 3.0)
+    assert "feature_std" in model.state_dict()
+
+    copia = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8)
+    copia.load_state_dict(model.state_dict())
+    x = torch.randn(4, 16, 16)
+    assert torch.allclose(model.encode(x), copia.encode(x))
+
+
+def test_el_aumento_traslada_entrada_y_objetivo_por_lo_mismo() -> None:
+    """Si el par se desplaza distinto, deja de ser una transicion valida del simulador."""
+    from train import Augmenter
+
+    augmenter = Augmenter(enabled=True, forcing_wavenumber=4)
+    generator = torch.Generator().manual_seed(0)
+    campo = torch.randn(8, 16, 16)
+    movido, mismo = augmenter(campo, campo.clone(), generator=generator)
+
+    assert torch.equal(movido, mismo)                      # el mismo desplazamiento
+    assert not torch.equal(movido, campo)                  # y desplaza de verdad
+    assert torch.allclose(movido.std(dim=(1, 2)), campo.std(dim=(1, 2)), atol=1e-5)
+
+
+def test_el_aumento_solo_usa_traslaciones_permitidas_en_y() -> None:
+    """En y solo son simetria los multiplos del periodo del forzado: grid / k_f."""
+    from train import Augmenter
+
+    augmenter = Augmenter(enabled=True, forcing_wavenumber=4)
+    generator = torch.Generator().manual_seed(1)
+    grid = 16
+    # Un campo que solo depende de y: tras un desplazamiento permitido debe coincidir
+    # con alguna traslacion de si mismo en multiplos de grid/4 = 4 casillas.
+    perfil = torch.sin(2 * math.pi * 4 * torch.arange(grid) / grid)
+    campo = perfil[None, :, None].expand(32, grid, grid).clone()
+    (movido,) = augmenter(campo, generator=generator)
+    assert torch.allclose(movido, campo, atol=1e-5)  # sin(4y) es invariante a esos saltos
+
+
+def test_el_aumento_desactivado_no_toca_nada() -> None:
+    from train import Augmenter
+
+    augmenter = Augmenter(enabled=False, forcing_wavenumber=4)
+    campo = torch.randn(4, 16, 16)
+    (igual,) = augmenter(campo, generator=torch.Generator().manual_seed(0))
+    assert torch.equal(igual, campo)

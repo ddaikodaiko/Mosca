@@ -97,6 +97,7 @@ class MaskedRecurrentCore(nn.Module):
         n_internal_steps: int = 4,
         spectral_radius: float = 0.95,
         leak: float = 1.0,
+        normalisation: str = "max_eig",
     ) -> None:
         super().__init__()
         self.n_neurons = wiring.n_neurons
@@ -112,15 +113,33 @@ class MaskedRecurrentCore(nn.Module):
         edge_sign = wiring.sign[wiring.rows].astype(np.float32)
         self.register_buffer("edge_sign", torch.from_numpy(edge_sign))
 
-        theta = self._initial_theta(wiring, spectral_radius)
+        self.normalisation = normalisation
+        theta = self._initial_theta(wiring, spectral_radius, normalisation)
         self.theta = nn.Parameter(torch.from_numpy(theta))
         self.bias = nn.Parameter(torch.zeros(self.n_neurons))
 
     @staticmethod
-    def _initial_theta(wiring: Wiring, spectral_radius: float) -> np.ndarray:
-        """Magnitud proporcional a las sinapsis, reescalada al radio espectral pedido."""
+    def _initial_theta(
+        wiring: Wiring, spectral_radius: float, normalisation: str = "max_eig"
+    ) -> np.ndarray:
+        """Magnitud proporcional a las sinapsis, reescalada al radio espectral pedido.
+
+        `normalisation`:
+          max_eig  lo que pide el diseno: se escala el autovalor mayor a `spectral_radius`.
+                   Medido en la fase 4: el grueso del espectro queda en 0,07 (N=4.000), o
+                   sea que un impulso generico se atenua 14 veces por salto.
+          row      cada neurona recibe la misma corriente total (se divide por su grado de
+                   entrada ponderado) ANTES de escalar el autovalor mayor. Sube el grueso
+                   del espectro a 0,55 sin tocar el maximo.
+        """
         magnitude = wiring.synapses.astype(np.float64)
         magnitude = magnitude / magnitude.mean()
+        if normalisation == "row":
+            incoming = np.bincount(wiring.cols, weights=magnitude, minlength=wiring.n_neurons)
+            incoming[incoming == 0] = 1.0
+            magnitude = magnitude / incoming[wiring.cols]
+        elif normalisation != "max_eig":
+            raise ValueError(f"normalizacion desconocida: {normalisation}")
         values = wiring.sign[wiring.rows].astype(np.float64) * magnitude
         matrix = sp.coo_matrix(
             (values, (wiring.cols, wiring.rows)),
@@ -242,11 +261,14 @@ class ConnectomeFlowModel(nn.Module):
         spectral_radius: float = 0.95,
         leak: float = 1.0,
         output_scale: float = 0.1,
+        normalisation: str = "max_eig",
     ) -> None:
         super().__init__()
         self.grid = grid
         self.n_complex_modes = n_complex_modes
-        self.core = MaskedRecurrentCore(wiring, n_internal_steps, spectral_radius, leak)
+        self.core = MaskedRecurrentCore(
+            wiring, n_internal_steps, spectral_radius, leak, normalisation
+        )
 
         sensory, motor = select_ports(wiring, n_sensory, n_motor)
         self.register_buffer("sensory", torch.from_numpy(sensory))
@@ -257,6 +279,11 @@ class ConnectomeFlowModel(nn.Module):
         self.register_buffer("mirror_target", torch.from_numpy(mirror_target))
 
         n_features = 2 * n_complex_modes  # parte real e imaginaria
+        # Estadisticas de los modos, medidas sobre el conjunto de entrenamiento. Sin
+        # esto el impulso de entrada llega a tanh con rms ~2 y satura de salida: los
+        # coeficientes de Fourier de un campo de rms 2,2 llegan a valer 22.
+        self.register_buffer("feature_mean", torch.zeros(n_features))
+        self.register_buffer("feature_std", torch.ones(n_features))
         self.encoder = nn.Linear(n_features, n_sensory)
         self.decoder = nn.Linear(n_motor, n_features)
         nn.init.zeros_(self.decoder.bias)
@@ -266,9 +293,26 @@ class ConnectomeFlowModel(nn.Module):
     def encode(self, omega: Tensor) -> Tensor:
         spectrum = torch.fft.rfft2(omega, norm="ortho").reshape(omega.shape[0], -1)
         picked = spectrum[:, self.mode_index]
-        return torch.cat([picked.real, picked.imag], dim=1)
+        features = torch.cat([picked.real, picked.imag], dim=1)
+        return (features - self.feature_mean) / self.feature_std
+
+    @torch.no_grad()
+    def fit_feature_statistics(self, omega: Tensor) -> None:
+        """Mide media y desviacion de los modos sobre una muestra de entrenamiento.
+
+        Quedan como buffers, o sea que viajan en el checkpoint y el modelo evaluado es
+        exactamente el entrenado. Se llama ANTES de entrenar y nunca despues.
+        """
+        spectrum = torch.fft.rfft2(omega, norm="ortho").reshape(omega.shape[0], -1)
+        picked = spectrum[:, self.mode_index]
+        features = torch.cat([picked.real, picked.imag], dim=1)
+        self.feature_mean.copy_(features.mean(dim=0))
+        self.feature_std.copy_(features.std(dim=0).clamp_min(1e-6))
 
     def decode(self, features: Tensor) -> Tensor:
+        # El decodificador trabaja en unidades normalizadas: se deshace la escala para
+        # que el incremento predicho nazca en el orden de magnitud correcto.
+        features = features * self.feature_std
         half = features.shape[1] // 2
         picked = torch.complex(features[:, :half], features[:, half:])
         shape = (features.shape[0], self.grid, self.grid // 2 + 1)

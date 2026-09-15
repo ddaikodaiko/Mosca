@@ -10,7 +10,7 @@ graph:
 
 subgraph:
   n_neurons: 500      # objetivo antes de podar
-  n_seeds: 8          # manchas repartidas por el grafo
+  n_seeds: 4          # manchas repartidas por el grafo
   min_main_component: 0.90   # criterio de aceptacion de la fase
 
 controls:

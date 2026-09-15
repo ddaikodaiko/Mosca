@@ -285,3 +285,102 @@ que la fase 4 completa **no se hace en el portatil** (regla 6). Ojo tambien al s
 `dt_guardado = 0,1` la persistencia ya acierta con un 9,7 % de error relativo, asi que el
 margen de mejora a un paso es estrecho y la metrica que de verdad separa modelos sera el
 despliegue largo.
+
+---
+
+## Fase 4 — Entrenamiento
+
+Rama `fase-4-entrenamiento`. `train.py` con las dos fases del encargo: fase A a un paso
+con Adam y decaimiento coseno, fase B con currículo de despliegue y retropropagacion a
+traves del tiempo. Recorte de gradiente a 1,0 y parada temprana por validacion en ambas.
+
+**El prototipo del portatil no es un resultado**: N=500, malla 32x32, 64 modos, 4.000
+pasos, una sola semilla. Sirve para que la maquinaria quede probada y para lo que sigue,
+que es lo importante de esta fase.
+
+### Dos fallos reales encontrados, uno arreglado
+
+**1. La entrada saturaba tanh (arreglado).** Los coeficientes de Fourier de un campo de
+rms 2,2 llegan a valer 22. Sin normalizar, el impulso de entrada llegaba al nucleo con
+rms 2,2 y maximo 6,5: el **24,9 %** de las neuronas sensoriales quedaban clavadas en
+`|h| > 0,99`, donde la derivada de tanh es cero, y el gradiente se moria (`|grad|` caia a
+0,0000 y el modelo no podia sobreajustar ni 32 pares fijos). Corregido midiendo media y
+desviacion de los modos **solo sobre entrenamiento**, guardadas como buffers para que
+viajen en el checkpoint. Tras la correccion: impulso de rms 0,59, saturacion 0,000.
+
+**2. El radio espectral del diseno no propaga (medido, no arreglado).** Fijar el autovalor
+mayor a 0,95 deja el **grueso** del espectro en 0,071 (N=4.000) y 0,188 (N=500): un impulso
+generico se atenua ~14 veces por salto. Medido en el nucleo: `|h|` medio 0,762 en las
+sensoriales, 0,012 en el resto, 0,051 en las motoras. Se probo una normalizacion por filas
+que sube el grueso a 0,555 sin tocar el maximo, **y no cambia el resultado final**
+(0,0998 contra 0,0999). Queda como opcion de config (`core.normalisation: max_eig | row`),
+con el valor del diseno por defecto.
+
+### Por que no aprendia: no era el conectoma
+
+Cadena de diagnostico, cada paso medido:
+
+| Prueba | Resultado | Que descarta |
+|---|---|---|
+| Sobreajustar 32 pares fijos | se estanca en 0,0882 | no es falta de datos |
+| Tres normalizaciones del nucleo | **las tres en 0,0882** | no es la propagacion |
+| Mejor mapa **lineal**, solucion cerrada | 0,1001 = persistencia | nada, la dinamica es cuadratica |
+| **FNO** con los mismos datos | 0,1001 -> **0,0369** | la tarea SI es aprendible, los datos estan bien |
+| **MLP** que ve solo los modos bajos | train 0,087 / val 0,105 | el cuello es el codificador, no la mascara |
+| MLP con 64 / 128 / 256 modos | val 0,105 / 0,110 / **0,117** | no es falta de modos: mas modos, peor |
+
+El codificador del diseno (FFT -> capa densa -> nucleo -> capa densa -> iFFT) no tiene
+sesgo inductivo ninguno: memoriza y no generaliza. El FNO gana porque comparte pesos en el
+espacio, no porque tenga mas capacidad.
+
+### El arreglo: aumento de datos por simetrias exactas
+
+El dominio es `[0,2pi]^2` periodico, asi que **trasladar en x es una simetria exacta** de
+Navier-Stokes. En y lo son las traslaciones de un periodo del forzado `sin(4y)`, o sea
+multiplos de `malla/4` casillas. No es regularizacion: son transiciones que el simulador
+podria haber producido y que no estabamos usando.
+
+```
+MLP sin aumento    train 0,0871   val 0,1046   (peor que persistencia)
+MLP con aumento    train 0,0923   val 0,0953   (mejor que persistencia)
+```
+
+Se aplica **identico a los seis modelos**, asi que la comparacion sigue siendo justa.
+Es una **desviacion de la receta de entrenamiento del diseno** y esta pendiente del visto
+bueno del usuario (`augment.enabled` en el YAML, se apaga con un flag).
+
+### Resultado del prototipo, y el riesgo que destapa
+
+Malla 32x32, N=500, 64 modos, 4.000 pasos, una semilla, con aumento:
+
+| Modelo | 1 paso | despliegue 10 | despliegue 50 |
+|---|---|---|---|
+| persistencia | 0,1001 | 0,4496 | 0,9343 |
+| **mosca** | **0,0999** | 0,4481 | **0,9300** |
+| **aleatorio** | **0,0998** | 0,4481 | 0,9359 |
+| fno | **0,0395** | **0,1679** | **0,4885** |
+
+**Mosca y aleatorio se diferencian en un 0,1 %, y ninguno se despega de la persistencia.**
+El FNO gana por un factor 2,5 a un paso y 1,9 en despliegue de 50.
+
+Esto es exactamente la prediccion registrada (H0/H1: la mosca empata con los controles y el
+FNO gana a todos), pero **hay que decir por que empatan**: en esta configuracion empatan
+porque **ninguno de los dos aprende nada**, no porque el cableado de la mosca no aporte
+sobre el aleatorio. Un empate entre dos modelos que no aprenden no responde a la pregunta
+del proyecto. Con el MLP llegando a 0,0953 con el mismo codificador y los mismos datos,
+sabemos que ese techo no es del codificador: es del nucleo con mascara tal y como esta
+especificado.
+
+**Lo que NO se puede concluir todavia:** el prototipo tiene 500 neuronas y 9.217 sinapsis,
+contra las 4.000 y 175.744 de la configuracion real, la mitad de modos y la quinta parte de
+pasos. Puede que a escala real si se despegue. Es una pregunta abierta, no un resultado.
+
+### Coste medido
+
+```
+mosca / aleatorio (N=500, 4.000 pasos + fase B)   ~80 s
+fno (modes 8, width 16)                            241 s
+```
+
+La configuracion real (`configs/entrenamiento_64.yaml`, 6 modelos x 3 semillas, 20.000
+pasos, malla 64x64, N=4.000) **no se lanza en el portatil**: regla 6.
