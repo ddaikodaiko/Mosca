@@ -188,3 +188,100 @@ artifacts/conectoma_4000/controls_stats.json  comparacion de los tres cableados
 ```
 
 Los tres `.npz` juntos ocupan menos de 3 MB: se copian al PC con GPU sin problema.
+
+---
+
+## Fase 3 — Modelo (RNN con mascara + FNO)
+
+Rama `fase-3-modelo`. `models/masked_rnn.py` y `models/fno.py`, configurados por
+`configs/modelo_4000.yaml`.
+
+### Como se garantiza la mascara: no existiendo
+
+Las entradas fuera de la mascara **no son un parametro puesto a cero**: no existen. Los
+pesos viven en un vector `theta` de tamano `n_aristas` (175.744) y la matriz densa 4000x4000
+no se materializa nunca en el camino del gradiente; se usa una matriz dispersa de 175.744
+valores. Por construccion es imposible que una sinapsis inexistente se vuelva no nula.
+
+La ley de Dale es `W = signo * softplus(theta)`, con el signo tomado de la neurona
+**presinaptica** y guardado como buffer no entrenable. `softplus > 0` siempre, asi que el
+signo no puede cambiar por mucho que empuje el gradiente.
+
+### Test obligatorio de la fase: pasa
+
+`tests/test_masked_rnn.py`, 14 tests. Los dos que exige el encargo, tras **100 pasos de
+Adam**:
+
+- entradas fuera de la mascara **exactamente** `0.0` (comparacion exacta, no `allclose`);
+- **ninguna** neurona cambia de signo, con `lr = 1e-1` a proposito para forzarlo.
+
+Y un tercero que hace de contrapeso: **los pesos se mueven de verdad**. Sin el, los dos
+anteriores pasarian igual con el gradiente a cero, que es la forma tonta de "cumplir".
+
+`pytest -q`: **41 pasan** (fases 1, 2 y 3).
+
+### Un fallo real encontrado por el test del codificador
+
+La primera version elegia los 256 modos de Fourier de menor `|k|` sin mirar la simetria
+hermitica. El campo es real, asi que en las columnas `ky = 0` y `ky = N/2` el coeficiente
+de `-kx` es el conjugado del de `+kx`. Al guardar uno solo y reconstruir, `irfft2`
+simetriza y **se pierde la mitad de la amplitud de esos modos**. Se detecto porque
+`decode(encode(x))` no era idempotente: diferencia 0,018 sobre un campo de rms 0,238.
+
+Corregido: se eligen solo los modos **independientes** y el decodificador rellena los
+espejos conjugados. En la malla de 64 hay 9 espejos que rellenar de los 128 modos.
+
+### Lo que la red puede ver, medido
+
+Con 128 modos complejos independientes a 64x64, el disco llega a **|k| = 9,1** (no ~6 como
+decia una nota previa, que suponia el disco completo en vez de la mitad
+independiente). Medido sobre trayectorias reales de `artifacts/ns64_validacion`:
+
+```
+varianza del campo retenida por el codificador   0,8846
+error L2 relativo del filtro paso bajo           0,3397
+```
+
+Es decir: la red **ve** el 88,5 % de la varianza y **solo puede corregir** por debajo de
+`k = 9,1`. No es un suelo del error de prediccion, porque la prediccion es residual
+(`omega + delta`) y el campo completo pasa de largo: lo que queda por encima de `k = 9,1`
+evoluciona como persistencia pura. **Consecuencia para la fase 5:** al medir el error
+espectral por bandas hay que separar `k <= 9` de `k > 9`; en la banda alta, todos los
+cableados son persistencia por construccion y no discriminan nada.
+
+### Los seis modelos comparten todo menos la mascara
+
+| Modelo | Neuronas | Parametros entrenables |
+|---|---|---|
+| mosca | 4.000 | **311.328** |
+| aleatorio | 4.000 | **311.328** |
+| recableado | 4.000 | **311.328** |
+| denso | 420 | 176.400 sinapsis (0,4 % del presupuesto de la mosca) |
+| fno | — | 1.188.353 |
+| persistencia | — | 0 |
+
+Los tres cableados dan el mismo numero de parametros al bit, verificado por test: el
+codificador (256->256), el decodificador (256->256) y el sesgo son identicos, y las
+175.744 sinapsis tambien, porque los controles se construyeron con ese numero exacto.
+El `denso` usa 420 neuronas, que es el N que iguala `N(N-1)` a las aristas de la mosca.
+
+El FNO tiene casi 4x los parametros. Es deliberado: es el techo de rendimiento, no un
+control emparejado.
+
+### Coste medido en el portatil
+
+Prueba corta de entrenamiento (mosca, malla 32, lote 16, 150 pasos de Adam):
+
+```
+persistencia (suelo)   L2 rel 0,0966
+tras 150 pasos         L2 rel 0,0953
+coste                  0,30 s/paso  (45 s las 150)
+```
+
+El gradiente fluye por el nucleo disperso y la perdida baja del suelo de persistencia,
+pero **150 pasos no son un entrenamiento**: esto solo demuestra que la maquinaria funciona.
+A 0,30 s/paso, un entrenamiento de 20.000 pasos son ~100 minutos de CPU al 100 %, o sea
+que la fase 4 completa **no se hace en el portatil** (regla 6). Ojo tambien al suelo: con
+`dt_guardado = 0,1` la persistencia ya acierta con un 9,7 % de error relativo, asi que el
+margen de mejora a un paso es estrecho y la metrica que de verdad separa modelos sera el
+despliegue largo.

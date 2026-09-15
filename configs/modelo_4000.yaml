@@ -1,0 +1,24 @@
+# Fase 3 - los seis modelos de la seccion 7 del diseno. Solo cambia la mascara.
+# Los cableados los produce la fase 2 en wiring_dir.
+device: auto
+wiring_dir: artifacts/conectoma_4000
+grid: 64
+
+core:
+  n_internal_steps: 4     # T_int: ciclos de la red por cada paso de fluido
+  spectral_radius: 0.95   # radio espectral al inicializar
+  leak: 1.0               # 1.0 = sin fuga, h se reemplaza entero cada paso interno
+  output_scale: 0.1       # el decodificador arranca pequeno: cerca de la persistencia
+
+encoder:
+  n_complex_modes: 128    # 256 numeros reales (parte real + imaginaria)
+  n_sensory: 256          # neuronas de mayor grado de salida
+  n_motor: 256            # neuronas de mayor grado de entrada, disjuntas de las sensoriales
+
+fno:
+  modes: 12
+  width: 32
+  n_layers: 4
+
+# Los seis modelos. persistencia no se entrena; denso ajusta N para igualar parametros.
+models: [mosca, aleatorio, recableado, denso, fno, persistencia]
