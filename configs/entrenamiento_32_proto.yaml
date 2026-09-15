@@ -45,6 +45,11 @@ augment:
   enabled: true
   forcing_wavenumber: 4
 
+evaluation:
+  rollout_steps: 50
+  correlation_threshold: 0.8
+  permutations: 10000
+
 eval_rollouts: [10, 50]
 models: [persistencia, mosca, aleatorio, fno]
 seeds: [0]

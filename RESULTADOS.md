@@ -384,3 +384,83 @@ fno (modes 8, width 16)                            241 s
 
 La configuracion real (`configs/entrenamiento_64.yaml`, 6 modelos x 3 semillas, 20.000
 pasos, malla 64x64, N=4.000) **no se lanza en el portatil**: regla 6.
+
+---
+
+## Fase 5 — Evaluacion
+
+Rama `fase-5-evaluacion`. `evaluate.py`, con las cuatro metricas del encargo sobre el
+conjunto de test.
+
+### Metricas
+
+1. **Error L2 relativo a un paso.**
+2. **Error L2 relativo en despliegue** (50 pasos por defecto, configurable).
+3. **Tiempo hasta que la correlacion espacial cae bajo 0,8.** Si un modelo nunca baja del
+   umbral se devuelve la duracion completa del despliegue, y eso se lee como "al menos
+   esto": es un dato **censurado**, no el valor real. Hay un test que lo fija.
+4. **Error del espectro de energia POR BANDAS y en logaritmo**, `|log10(E_pred/E_real)|`.
+
+La cuarta va por bandas por lo medido en la fase 1: el 91 % de la energia esta en
+`k <= 4`, asi que en crudo la metrica la dominarian cuatro modos y no distinguiria nada.
+Las tres bandas son **inyeccion** (k 1-4), **alcanzable** (k 5 hasta donde llega el
+codificador) y **fuera del codificador** (por encima, hasta el corte de desaliasing).
+La tercera existe porque en ella **todos los cableados son persistencia por
+construccion**: el decodificador no escribe ahi. Informarla junta con el resto seria
+diluir la comparacion con una banda en la que ningun modelo puede hacer nada.
+
+### Prueba de permutacion
+
+Pareada por trayectoria y con sorteo de signo, 10.000 permutaciones. Pareada porque las
+dos columnas son el **mismo** conjunto de test evaluado por dos modelos: la variabilidad
+entre trayectorias es enorme comparada con la diferencia entre modelos, y emparejar la
+elimina. Se informa siempre junto a la **desviacion tipica entre semillas**, y el veredicto
+dice explicitamente si la diferencia cae dentro de esa variabilidad.
+
+Con menos de dos semillas el veredicto **no se emite**: la desviacion sale 0 por
+construccion y cualquier diferencia pareceria significativa. En ese caso imprime
+"no juzgable: 1 semilla".
+
+Limite que conviene tener presente: una prueba de permutacion a nivel de **semilla**, con
+3 por modelo, tiene como minimo p = 1/20 (hay C(6,3) = 20 reparticiones posibles). Por eso
+la prueba principal es a nivel de trayectoria y la dispersion entre semillas se informa al
+lado en vez de fundirlas en un solo numero.
+
+### Figuras
+
+Tres, en `<output_dir>/figs/`: barras de las tres metricas escalares con barras de error
+entre semillas y la persistencia como linea de referencia; decaimiento de la correlacion
+con banda de +-1 desviacion; y error espectral por bandas. Paleta categorica en orden fijo
+validada para daltonismo (peor par adyacente Delta E 9,1 en protanopia), con la
+persistencia en gris porque no es una serie sino la referencia, y con etiquetas numericas
+directas sobre cada barra.
+
+### Comprobacion sobre el prototipo
+
+Ejecutado sobre `artifacts/train_32_proto` (32x32, N=500, **una sola semilla**, asi que
+no son resultados del proyecto, solo la comprobacion de que la fase corre):
+
+| modelo | L2 1 paso | L2 despliegue 50 | t hasta corr<0,8 |
+|---|---|---|---|
+| persistencia | 0,1007 | 0,9033 | 0,99 |
+| mosca | 0,1004 | 0,9003 | 0,99 |
+| aleatorio | 0,1004 | 0,9057 | 0,99 |
+| fno | 0,0394 | 0,4715 | 3,70 |
+
+Un detalle que sale de la metrica espectral y que merece anotarse: en la banda **fuera del
+codificador** el FNO es el **peor** (0,11 contra 0,05 de los cableados). No es un fallo del
+FNO: es que el FNO escribe contenido de alta frecuencia y se equivoca, mientras que los
+cableados dejan esa banda intacta y por tanto heredan el acierto de la persistencia. Al
+leer la tabla final hay que tenerlo en cuenta: en esa banda, "mejor" significa "no ha
+tocado nada".
+
+### Tests
+
+`tests/test_evaluate.py`, 12 tests sobre campos sinteticos con la respuesta conocida:
+correlacion de un campo consigo mismo y con su opuesto, invarianza a desplazamiento
+constante, primer cruce del umbral y censura cuando no cruza, error espectral cero para
+campos identicos y exactamente 2,0 al escalar el campo por 10, permutacion con muestras
+identicas (p = 1), con diferencia grande (p < 0,01) y con solo ruido (p > 0,05), y que las
+bandas cubren el rango sin solaparse.
+
+`pytest -q`: **58 pasan**.
