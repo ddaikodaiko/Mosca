@@ -464,3 +464,37 @@ identicas (p = 1), con diferencia grande (p < 0,01) y con solo ruido (p > 0,05),
 bandas cubren el rango sin solaparse.
 
 `pytest -q`: **58 pasan**.
+
+
+---
+
+## Pendientes al cierre del 15-09-2026
+
+Codigo de las cinco fases completo, `pytest -q`: 58 pasan. Nada fusionado a `main`
+todavia: las cinco fases cuelgan de cinco ramas encadenadas.
+
+### Bloqueante
+
+- **`denso` no arranca.** Detectado al probar los seis modelos uno a uno, que era lo unico
+  que quedaba por hacer en el portatil antes de encender la GPU. Iguala el presupuesto de
+  parametros con 420 neuronas y el diseno pide 256 + 256 puertos disjuntos. Habria reventado
+  el entrenamiento 10 de 15 en la GPU. Tres salidas posibles, todas con coste, en las notas del proyecto.
+  Los otros cinco modelos construyen, propagan gradiente y despliegan sin problema.
+
+### Decisiones del usuario, abiertas
+
+1. Visto bueno al **aumento de datos** por simetrias exactas (desviacion de la receta del
+   diseno). Sin el, ningun modelo con mascara supera a la persistencia.
+2. Que hacer si el nucleo con mascara **no se despega de la persistencia** a escala real.
+   El empate del prototipo no responde a la pregunta del proyecto.
+3. Como se arregla `denso`.
+
+### Trabajo util que aun cabe en el portatil
+
+- **Ensayo general a 32x32 con las 3 semillas.** Es lo unico que puede decir, antes de
+  gastar GPU, si la comparacion mosca contra controles tiene alguna resolucion o si todos
+  empatan en la persistencia. Coste estimado ~30 min de CPU al 100 %: cruza la regla 6, hay
+  que trocearlo y pedir permiso.
+- **Fusionar las ramas a `main`.**
+- **La mitad barata del visualizador**, que ahora sirve de diagnostico y no solo de video:
+  el nucleo apenas se activa (`|h|` medio 0,012 fuera de las sensoriales).

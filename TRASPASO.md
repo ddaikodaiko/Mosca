@@ -57,7 +57,20 @@ trocear por modelo y por semilla, que los checkpoints son independientes:
 python train.py --config configs/entrenamiento_64.yaml --model mosca --seed 0
 ```
 
-## 5. Antes de lanzar, dos decisiones abiertas
+## 5. Antes de lanzar, TRES decisiones abiertas
+
+0. **`denso` no arranca todavia.** `ValueError: no hay neuronas suficientes para tantos
+   puertos`: iguala parametros con 420 neuronas, pero el diseno pide 256 sensoriales mas
+   256 motoras disjuntas. Si se lanza la lista completa de modelos, revienta el
+   entrenamiento 10 de 15 **despues de horas de GPU**. Hasta decidirlo, lanzar sin el:
+
+   ```bash
+   # en configs/entrenamiento_64.yaml, quitar 'denso' de models:
+   models: [persistencia, mosca, aleatorio, recableado, fno]
+   ```
+
+   Las tres salidas posibles estan en las notas del proyecto, en "Hallazgos que condicionan fases
+   posteriores". Es decision de diseno, no un parche.
 
 1. **`augment.enabled: true`** en el YAML. Es aumento de datos por simetrias exactas del
    sistema (traslacion en x, y en y por periodos del forzado). Sin el, ningun modelo con
