@@ -88,3 +88,103 @@ artifacts/ns64_validacion/   4+2+2 trayectorias 64x64 de validacion fisica      
 El set real de 64x64 (200+40+40 trayectorias, ~900 MB) **no se genera en el portatil**:
 serian 13 min de CPU sostenida. Se genera en el PC con GPU con el mismo script, el mismo
 YAML y las mismas semillas. Comando en `TRASPASO.md`.
+
+---
+
+## Fase 2 — Conectoma y subgrafo
+
+Rama `fase-2-conectoma`. Conectoma FlyWire v783 del repo `philshiu/Drosophila_brain_model`
+(Shiu et al., 2024): **138.639 neuronas y 15.091.983 aristas**.
+
+### Descarga
+
+`data/download_flywire.py` baja los dos ficheros sueltos en vez de clonar el repo, que
+arrastraria ademas la version 630 (~90 MB que no usamos). Cache en `data/raw/`, verificada
+por tamano exacto.
+
+```
+Connectivity_783.parquet  100,8 MB  sha256 efeb23fb99098e9c390f6869969b2a121a2ee92c833cfc45ecb2c1d8e1af0347
+Completeness_783.csv        3,3 MB  sha256 bbb847a4cc2caaa7a16349722d220c087317b946d148d4d592d94d250617a311
+```
+
+### El signo ya viene dado, y ya cumple la ley de Dale
+
+El parquet trae una columna `Excitatory` con valores `+1` / `-1`. Comprobado sobre las
+15,1 millones de aristas: **el signo es constante para cada neurona presinaptica, sin una
+sola excepcion**. No hay que derivarlo del neurotransmisor a mano; la convencion del
+diseno (acetilcolina +1, GABA y glutamato -1) es la que Shiu et al. ya aplicaron. En el
+conectoma completo el 29,95 % de las neuronas son inhibidoras.
+
+`Completeness_783.csv` no filtra nada: sus 138.639 filas estan todas en `Completed = True`.
+Sirve como mapa indice -> ID de FlyWire, en el mismo orden que los indices del parquet.
+
+### Subgrafo de 4.000 neuronas (`configs/conectoma_4000.yaml`, semilla 20260915)
+
+| Metrica | Valor |
+|---|---|
+| Neuronas | **4.000** (de 4.000 crecidas: no se poda ninguna) |
+| Aristas | **175.744** |
+| Densidad | **0,01099** |
+| Fraccion inhibidora (aristas) | **0,4318** |
+| Fraccion inhibidora (neuronas) | **0,4123** |
+| Grado medio / mediano | **87,9 / 68,0** |
+| Grado maximo | **710** |
+| Componentes debiles | **1** |
+| Neuronas con grado interno 0 | **0** |
+| En la componente principal | **100 %** (criterio: >= 90 %) |
+
+Coste: 1 s de carga del parquet, 2,5 s de construccion. Nada pesado.
+
+**Criterio de aceptacion superado con holgura**, y no es suerte de la semilla: con las
+semillas 1, 2 y 3 sale tambien **100 %**. Lo que si cambia con la semilla es *que*
+subgrafo toca: aristas 160.095-184.637, densidad 0,0100-0,0115 y fraccion inhibidora
+0,362-0,499. **Consecuencia para la fase 4:** las 3 semillas por modelo son semillas de
+*entrenamiento*; el subgrafo tiene que ser el mismo para los seis modelos o la comparacion
+deja de ser justa.
+
+Una sola neurona de las 4.000 tiene signo indefinido (`sign = 0`): no tiene ninguna salida
+en el conectoma completo, asi que nunca aparece como presinaptica. Su columna de `W` esta
+enmascarada a cero, o sea que es inocua, pero se cuenta en `stats.json` (`neuronas_sin_signo`)
+para no esconderla.
+
+### Controles: iguales en todo menos en el cableado
+
+| | densidad | desviacion | frac. inhib. aristas | desviacion | grado mediano |
+|---|---|---|---|---|---|
+| mosca | 0,010987 | — | 0,43184 | — | 68 |
+| aleatorio | 0,010987 | **0,000 %** | 0,43190 | **0,013 %** | 88 |
+| recableado | 0,010987 | **0,000 %** | 0,43184 | **0,000 %** | 68 |
+
+Tolerancia exigida: 1 %. El **aleatorio** es Erdos-Renyi con el mismo numero exacto de
+aristas (muestreo sin reemplazo sobre el indice lineal sin diagonal, asi que no hay
+duplicados ni autoconexiones) y las neuronas se marcan inhibidoras en orden aleatorio
+hasta alcanzar la fraccion de aristas objetivo — el signo es de la neurona, no de la
+arista, para que la ley de Dale siga teniendo sentido. Se nota en el grado maximo: 123 en
+el aleatorio frente a 710 en la mosca; ahi esta la cola larga que el ER no reproduce.
+
+El **recableado** hace 1.757.440 intentos de intercambio doble (10 por arista), de los que
+acepta **1.638.448 (93,2 %)** y mueve el **99,95 %** de las aristas. Conservacion de grados
+verificada elemento a elemento: `grado_salida_conservado = True`, `grado_entrada_conservado
+= True`. Como el signo es de la presinaptica y su grado de salida no cambia, la fraccion
+inhibidora se conserva **exactamente**, no dentro de una tolerancia.
+
+### Tests
+
+`pytest -q`: **27 pasan**. Los de la fase 2 (`tests/test_conectoma.py`) corren sobre grafos
+sinteticos pequenos, sin tocar `data/raw/`; el unico que usa el subgrafo real se salta si
+no se ha generado. Cubren: reparto del presupuesto entre manchas, determinismo por semilla,
+poda por componente principal, reindexado del subgrafo inducido, conservacion exacta de
+grados en el recableado, ausencia de duplicados y autoconexiones, y equivalencia de
+densidad y fraccion inhibidora en el aleatorio.
+
+### Salidas
+
+```
+artifacts/conectoma_4000/mosca.npz        nodes, rows, cols, synapses, sign
+artifacts/conectoma_4000/aleatorio.npz    misma estructura, cableado ER
+artifacts/conectoma_4000/recableado.npz   misma estructura, grados conservados
+artifacts/conectoma_4000/stats.json       metricas del subgrafo + config completa
+artifacts/conectoma_4000/controls_stats.json  comparacion de los tres cableados
+```
+
+Los tres `.npz` juntos ocupan menos de 3 MB: se copian al PC con GPU sin problema.

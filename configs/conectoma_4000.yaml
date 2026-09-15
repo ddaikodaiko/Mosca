@@ -1,0 +1,18 @@
+# Fase 2 - subgrafo real (seccion 4.1 del diseno): 4.000 neuronas por manchas.
+#   python -m connectome.subgraph --config configs/conectoma_4000.yaml
+#   python -m connectome.controls --config configs/conectoma_4000.yaml
+seed: 20260915
+output_dir: artifacts/conectoma_4000
+raw_dir: data/raw
+
+graph:
+  min_synapses: 1      # aristas con al menos este numero de sinapsis (1 = todas)
+
+subgraph:
+  n_neurons: 4000      # objetivo antes de podar
+  n_seeds: 20          # manchas repartidas por el grafo
+  min_main_component: 0.90   # criterio de aceptacion de la fase
+
+controls:
+  rewire_swaps_per_edge: 10  # intentos de intercambio por arista
+  tolerance: 0.01            # desviacion maxima admitida en densidad y fraccion inhibidora
