@@ -294,3 +294,60 @@ def test_el_aumento_desactivado_no_toca_nada() -> None:
     campo = torch.randn(4, 16, 16)
     (igual,) = augmenter(campo, generator=torch.Generator().manual_seed(0))
     assert torch.equal(igual, campo)
+
+
+def test_la_traslacion_continua_produce_transiciones_validas_del_simulador() -> None:
+    """Desplazar fracciones de casilla por fase de Fourier sigue siendo simetria exacta
+    en x para campos de banda limitada (el simulador desaliasa por encima de n/3)."""
+    from data.spectral import make_grid, rk4_step
+    from train import Augmenter
+
+    grid = 16
+    spectral = make_grid(grid, device=torch.device("cpu"))
+    rng = np.random.default_rng(1)
+    omega_hat = torch.fft.rfft2(torch.from_numpy(rng.standard_normal((6, grid, grid))))
+    omega = torch.fft.irfft2(omega_hat * spectral.dealias, s=(grid, grid))  # banda limitada
+
+    def simulate(field: torch.Tensor) -> torch.Tensor:
+        w_hat = torch.fft.rfft2(field)
+        for _ in range(5):
+            w_hat = rk4_step(w_hat, 0.01, spectral, 1e-3, 0.1)
+        return torch.fft.irfft2(w_hat, s=(grid, grid))
+
+    target = simulate(omega)
+    augmenter = Augmenter(enabled=True, forcing_wavenumber=4, continuous_x=True)
+    moved, moved_target = augmenter(omega, target, generator=torch.Generator().manual_seed(5))
+    assert not torch.equal(moved, omega)
+    error = torch.linalg.vector_norm(simulate(moved) - moved_target) / torch.linalg.vector_norm(moved_target)
+    assert float(error) < 1e-10
+
+
+def test_el_orden_de_sorteo_del_aumento_entero_no_cambia() -> None:
+    """Regresion de reproducibilidad: con continuous_x apagado, las traslaciones son las
+    mismas que antes de anadir la opcion (x primero, y despues, del mismo generador)."""
+    from train import Augmenter
+
+    grid, batch = 16, 8
+    campo = torch.arange(batch * grid * grid, dtype=torch.float64).reshape(batch, grid, grid)
+    (movido,) = Augmenter(enabled=True, forcing_wavenumber=4)(campo, generator=torch.Generator().manual_seed(7))
+    generator = torch.Generator().manual_seed(7)
+    shift_x = torch.randint(0, grid, (batch,), generator=generator)
+    shift_y = torch.randint(0, 4, (batch,), generator=generator) * (grid // 4)
+    esperado = torch.stack([torch.roll(campo[i], (int(shift_x[i]), int(shift_y[i])), dims=(0, 1))
+                            for i in range(batch)])
+    assert torch.equal(movido, esperado)
+
+
+def test_sin_nucleo_no_tiene_conexiones_y_usa_los_puertos_de_la_mosca() -> None:
+    wiring = toy_wiring(seed=9)
+    empty = Wiring.without_edges(wiring)
+    model = ConnectomeFlowModel(empty, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8,
+                                n_shared=2, port_wiring=wiring)
+    reference = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8,
+                                    n_shared=2)
+    assert model.core.theta.numel() == 0
+    assert torch.equal(model.sensory, reference.sensory) and torch.equal(model.motor, reference.motor)
+    x = torch.randn(3, 16, 16)
+    prediction, h, _ = model(x)
+    prediction.pow(2).mean().backward()
+    assert torch.isfinite(h).all() and model.encoder.weight.grad is not None

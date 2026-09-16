@@ -22,6 +22,7 @@ encoder:
   n_complex_modes: 64      # 128 numeros reales
   n_sensory: 128
   n_motor: 128
+  n_shared: 0             # puertos disjuntos, tal como se corrio el 15-09 (antes del solape fijo)
 
 fno: {modes: 8, width: 16, n_layers: 3}
 

@@ -4,3 +4,6 @@ artifacts/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Notas de trabajo internas: no se publican
+TRASPASO.md

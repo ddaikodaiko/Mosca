@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visor Mosca</title>
+<style>
+  :root {
+    --bg: #0c0e12; --panel: #14171d; --line: #262b34; --text: #e6e8ec; --muted: #8b93a1;
+    --pos: 255, 110, 74; --neg: 77, 157, 224; --accent: #f2c14e;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 14px 20px 4px; }
+  h1 { font-size: 18px; margin: 0 0 2px; font-weight: 600; }
+  .sub { color: var(--muted); font-size: 12.5px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+  .panel h2 { font-size: 12px; font-weight: 600; margin: 0 0 8px; color: var(--muted);
+              text-transform: uppercase; letter-spacing: .05em; }
+  .controls { position: sticky; top: 0; z-index: 2; background: var(--bg); display: flex; align-items: center;
+              gap: 12px; padding: 8px 20px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+  button, select { background: var(--panel); color: var(--text); border: 1px solid var(--line);
+                   border-radius: 6px; padding: 5px 12px; font: inherit; cursor: pointer; }
+  input[type=range] { flex: 1; min-width: 160px; accent-color: var(--accent); }
+  #clock { font-variant-numeric: tabular-nums; min-width: 230px; }
+  label { color: var(--muted); font-size: 13px; }
+  .wrap { padding: 12px 20px; display: grid; gap: 14px; }
+  .bottom { display: grid; grid-template-columns: max-content 1fr; gap: 14px; align-items: start; }
+  .fluidgrid { display: grid; justify-content: start; grid-template-columns: max-content repeat(3, 150px); gap: 6px 10px; align-items: center; }
+  .fluidgrid .col { font-size: 11.5px; color: var(--muted); text-align: center; line-height: 1.25; }
+  .fluidgrid .row { font-size: 12px; color: var(--text); text-align: right; }
+  .fluidgrid canvas { width: 150px; height: 150px; image-rendering: pixelated; display: block; border-radius: 4px; }
+  .fluidgrid .empty { width: 150px; height: 150px; border: 1px dashed var(--line); border-radius: 4px;
+                      display: flex; align-items: center; justify-content: center; color: var(--muted);
+                      font-size: 11.5px; text-align: center; padding: 8px; }
+  .fluidgrid .num { font-size: 11px; color: var(--muted); text-align: center; font-variant-numeric: tabular-nums; }
+  .brains { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+  .brain canvas { width: 100%; aspect-ratio: 1.9; display: block; cursor: grab; border-radius: 6px; background: #07080b; }
+  .brain canvas:active { cursor: grabbing; }
+  .stat { font-size: 12px; color: var(--muted); margin-top: 5px; font-variant-numeric: tabular-nums; }
+  .charts { display: grid; gap: 14px; }
+  .charts canvas { width: 100%; height: 190px; display: block; }
+  .legend { display: flex; gap: 12px; font-size: 11.5px; color: var(--muted); margin-top: 6px; flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 16px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 4px; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 8px; max-width: 540px; }
+  .scale { display: inline-block; width: 90px; height: 8px; vertical-align: middle; border-radius: 4px;
+           background: linear-gradient(90deg, rgb(var(--neg)), #555b66, rgb(var(--pos))); margin: 0 6px; }
+  footer { color: var(--muted); font-size: 12px; padding: 0 20px 20px; max-width: 980px; }
+  @media (max-width: 1100px) { .bottom { grid-template-columns: 1fr; } }
+  @media (max-width: 640px) {
+    header, .controls, .wrap, footer { padding-left: 16px; padding-right: 16px; }
+    .fluidgrid { grid-template-columns: auto repeat(3, 1fr); }
+    .fluidgrid canvas, .fluidgrid .empty { width: 100%; height: auto; aspect-ratio: 1; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Visor Mosca</h1>
+  <div class="sub" id="subtitle"></div>
+</header>
+
+<div class="controls">
+  <button id="play">⏸ Pausa</button>
+  <input type="range" id="scrub" min="0" value="0">
+  <span id="clock"></span>
+  <label>velocidad
+    <select id="speed"><option value="4">lenta</option><option value="12" selected>normal</option><option value="30">rápida</option></select>
+  </label>
+  <label>actividad
+    <select id="scaleMode"><option value="real" selected>escala real [−1, 1]</option><option value="enhance">realzada (p99)</option></select>
+  </label>
+  <label><input type="checkbox" id="ports"> marcar puertos</label>
+</div>
+
+<div class="wrap">
+  <section class="brains" id="brains"></section>
+  <div class="bottom">
+    <section class="panel">
+      <h2>Qué tiene que resolver</h2>
+      <div class="fluidgrid" id="fluidgrid"></div>
+      <div class="note">
+        El modelo predice el <b>incremento</b> Δω = ω(t+1) − ω(t) y lo suma al campo.
+        La persistencia predice Δω = 0. Columnas 1 y 2: despliegue sobre sus propias predicciones,
+        misma escala que el campo real. Columna 3: un paso desde el campo real, con la escala de Δω real.
+      </div>
+    </section>
+    <div class="charts">
+      <section class="panel"><h2>Error L2 relativo del despliegue</h2><canvas id="cError"></canvas><div class="legend" id="lError"></div></section>
+      <section class="panel"><h2>Correlación con el campo real</h2><canvas id="cCorr"></canvas><div class="legend" id="lCorr"></div></section>
+      <section class="panel"><h2>¿Llega la señal a la salida? |h| medio por papel</h2><canvas id="cSignal"></canvas><div class="legend" id="lSignal"></div></section>
+    </div>
+  </div>
+</div>
+
+<footer>
+  Actividad <span class="scale"></span> por defecto en la escala real de tanh: lo que no se ve, no está.
+  Gris: las neuronas de FlyWire v783 con posición conocida (Schlegel et al. 2024). Encendidas: las del subgrafo
+  en su posición real; los controles usan las mismas neuronas con otro cableado.
+  Es una red cableada con el diagrama de conexiones de la mosca, no una mosca.
+  Arrastra un cerebro para girarlo; espacio pausa, flechas avanzan fotograma a fotograma.
+</footer>
+
+<script>
+const DATA = /*__PAYLOAD__*/null;
+
+const decode = (text, Type) => {
+  const bytes = Uint8Array.from(atob(text), c => c.charCodeAt(0));
+  return new Type(bytes.buffer);
+};
+const background = decode(DATA.background, Int16Array);
+const active = decode(DATA.active, Int16Array);
+const truth = decode(DATA.truth, Int8Array);
+const trueDelta = decode(DATA.trueDelta, Int8Array);
+const initial = decode(DATA.initial, Int8Array);
+const G = DATA.grid, N = DATA.nNeurons, S = DATA.substeps, STEPS = DATA.steps;
+const FRAMES = STEPS * S;
+const MODEL_COLORS = { mosca: "#f2c14e", aleatorio: "#7fd1b9", recableado: "#c792ea" };
+const runs = DATA.runs.map(r => ({
+  ...r,
+  color: MODEL_COLORS[r.name] || "#e6e8ec",
+  activity: decode(r.activity, Int16Array),
+  fields: decode(r.fields, Int8Array),
+  deltas: decode(r.deltas, Int8Array),
+  roles: decode(r.roles, Int8Array),
+}));
+
+document.getElementById("subtitle").textContent =
+  `${DATA.config} · semilla de entrenamiento ${DATA.seed} · trayectoria de test ${DATA.trajectory} · ` +
+  `${STEPS} pasos (t hasta ${(STEPS * DATA.dtSave).toFixed(1)}) · ${N} neuronas del núcleo sobre ` +
+  `${DATA.nBackground.toLocaleString("es")} · ${S} subpasos por paso de fluido`;
+
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const POS = css("--pos").split(",").map(Number), NEG = css("--neg").split(",").map(Number);
+const MID = [60, 65, 74];
+function diverging(v) { // v en [-1, 1]
+  const t = Math.min(1, Math.abs(v)), end = v >= 0 ? POS : NEG;
+  return MID.map((m, i) => Math.round(m + (end[i] - m) * t));
+}
+
+// ---------- rejilla de campos ----------
+const grid = document.getElementById("fluidgrid");
+const cell = (cls, text) => { const d = document.createElement("div"); d.className = cls; d.textContent = text; grid.append(d); return d; };
+cell("col", "");
+cell("col", "vorticidad ω");
+cell("col", "error (predicho − real)");
+cell("col", "incremento Δω a 1 paso");
+function fieldCanvas() {
+  const c = document.createElement("canvas"); c.width = G; c.height = G; grid.append(c); return c.getContext("2d");
+}
+cell("row", "real");
+const truthCtx = fieldCanvas();
+cell("empty", "referencia");
+const trueDeltaCtx = fieldCanvas();
+cell("row", "persistencia");
+cell("empty", "ω(t+1) = ω(0) en el despliegue");
+const persistenceErrCtx = fieldCanvas();
+cell("empty", "Δω = 0 siempre");
+for (const r of runs) {
+  cell("row", r.name).style.color = r.color;
+  r.fieldCtx = fieldCanvas();
+  r.errCtx = fieldCanvas();
+  r.deltaCtx = fieldCanvas();
+  cell("row", "");
+  r.numField = cell("num", "");
+  r.numErr = cell("num", "");
+  r.numDelta = cell("num", "");
+}
+const image = new ImageData(G, G);
+function paint(ctx, get) {
+  for (let i = 0; i < G * G; i++) {
+    const [r, g, b] = diverging(get(i));
+    image.data[i * 4] = r; image.data[i * 4 + 1] = g; image.data[i * 4 + 2] = b; image.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(image, 0, 0);
+}
+
+// ---------- cerebros ----------
+const brains = document.getElementById("brains");
+const view = { yaw: 0, pitch: 0 };
+for (const r of runs) {
+  const box = document.createElement("section");
+  box.className = "panel brain";
+  box.innerHTML = `<h2 style="color:${r.color}">${r.name} · núcleo recurrente</h2>`;
+  const canvas = document.createElement("canvas");
+  const stat = document.createElement("div");
+  stat.className = "stat";
+  box.append(canvas, stat);
+  brains.append(box);
+  Object.assign(r, { canvas, ctx: canvas.getContext("2d"), stat, backgroundKey: "" });
+  let drag = null;
+  canvas.addEventListener("pointerdown", e => { drag = [e.clientX, e.clientY]; canvas.setPointerCapture(e.pointerId); });
+  canvas.addEventListener("pointermove", e => {
+    if (!drag) return;
+    view.yaw += (e.clientX - drag[0]) * 0.008;
+    view.pitch = Math.max(-1.5, Math.min(1.5, view.pitch + (e.clientY - drag[1]) * 0.008));
+    drag = [e.clientX, e.clientY];
+    render();
+  });
+  canvas.addEventListener("pointerup", () => { drag = null; });
+}
+
+function project(points, i, w, h) {
+  // FlyWire: x lateral, y dorsal->ventral (hacia abajo en pantalla), z antero-posterior.
+  const x = points[3 * i] / 32767, y = points[3 * i + 1] / 32767, z = points[3 * i + 2] / 32767;
+  const cy = Math.cos(view.yaw), sy = Math.sin(view.yaw), cp = Math.cos(view.pitch), sp = Math.sin(view.pitch);
+  const x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
+  const y1 = y * cp - z1 * sp, z2 = y * sp + z1 * cp;
+  const s = Math.min(w, h * 1.9) * 0.49;
+  return [w / 2 + x1 * s, h / 2 + y1 * s, z2];
+}
+
+function sizeCanvas(canvas) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.round(canvas.clientWidth * dpr), h = Math.round(canvas.clientHeight * dpr);
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  return [w, h];
+}
+
+function drawBackground(r, w, h) {
+  const key = `${w}x${h}:${view.yaw.toFixed(4)}:${view.pitch.toFixed(4)}`;
+  if (r.backgroundKey === key) return;
+  const density = new Float32Array(w * h);
+  for (let i = 0; i < DATA.nBackground; i++) {
+    const [px, py] = project(background, i, w, h);
+    const ix = px | 0, iy = py | 0;
+    if (ix >= 0 && iy >= 0 && ix < w && iy < h) density[iy * w + ix] += 1;
+  }
+  const img = new ImageData(w, h);
+  for (let p = 0; p < density.length; p++) {
+    if (!density[p]) continue;
+    const a = Math.min(1, Math.log1p(density[p]) / 3.2);
+    img.data.set([120, 128, 142, Math.round(25 + 110 * a)], p * 4);
+  }
+  r.backgroundImage = img;
+  r.backgroundKey = key;
+}
+
+function drawBrain(r, frame) {
+  const [w, h] = sizeCanvas(r.canvas);
+  drawBackground(r, w, h);
+  const ctx = r.ctx, dpr = window.devicePixelRatio || 1;
+  ctx.putImageData(r.backgroundImage, 0, 0);
+  const real = document.getElementById("scaleMode").value === "real";
+  const scale = real ? 1 : r.enhance;
+  const marks = document.getElementById("ports").checked;
+  const offset = frame * N;
+  const order = [];
+  for (let i = 0; i < N; i++) order.push([i, project(active, i, w, h)]);
+  order.sort((a, b) => a[1][2] - b[1][2]);
+  for (const [i, [px, py]] of order) {
+    const value = r.activity[offset + i] / 32767;
+    const v = Math.max(-1, Math.min(1, value / scale)), mag = Math.abs(v);
+    const [cr, cg, cb] = diverging(v);
+    ctx.beginPath();
+    ctx.arc(px, py, (1.8 + 4.2 * mag) * dpr, 0, 2 * Math.PI);
+    ctx.fillStyle = `rgba(${cr},${cg},${cb},${0.5 + 0.5 * mag})`;
+    ctx.fill();
+    if (marks && r.roles[i]) {
+      ctx.lineWidth = 1.3 * dpr;
+      ctx.strokeStyle = r.roles[i] === 1 ? "#ffffff" : r.roles[i] === 2 ? "#f2c14e" : "#ff5fd2";
+      ctx.stroke();
+    }
+  }
+  let sum = 0;
+  for (let i = 0; i < N; i++) sum += Math.abs(r.activity[offset + i]) / 32767;
+  r.stat.textContent =
+    `|h| medio ${(sum / N).toFixed(4)} · escala ${real ? "real ±1" : `realzada ±${r.enhance.toFixed(3)}`}` +
+    (marks ? " · blanco sensorial, amarillo motora, rosa ambas" : "");
+}
+
+// ---------- graficas ----------
+const DPR = () => window.devicePixelRatio || 1;
+function lineChart(canvas, series, opts, cursor) {
+  const [w, h] = sizeCanvas(canvas), dpr = DPR();
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, w, h);
+  const left = 40 * dpr, right = 8 * dpr, top = 8 * dpr, bottom = 18 * dpr;
+  const values = series.flatMap(s => s.values);
+  const ymin = opts.ymin ?? Math.min(0, ...values), ymax = opts.ymax ?? Math.max(...values) * 1.08;
+  const X = f => left + (w - left - right) * f;
+  const Y = v => top + (h - top - bottom) * (1 - (v - ymin) / (ymax - ymin || 1));
+  ctx.font = `${10.5 * dpr}px system-ui`; ctx.lineWidth = dpr;
+  for (const v of [ymin, (ymin + ymax) / 2, ymax]) {
+    ctx.strokeStyle = "#262b34"; ctx.beginPath(); ctx.moveTo(left, Y(v)); ctx.lineTo(w - right, Y(v)); ctx.stroke();
+    ctx.fillStyle = "#8b93a1"; ctx.fillText(opts.fmt ? opts.fmt(v) : v.toFixed(2), 2 * dpr, Y(v) + 4 * dpr);
+  }
+  ctx.fillText(`t = ${(STEPS * DATA.dtSave).toFixed(1)}`, w - right - 44 * dpr, h - 4 * dpr);
+  if (opts.hline !== undefined) {
+    ctx.strokeStyle = "#e6e8ec"; ctx.setLineDash([2 * dpr, 3 * dpr]);
+    ctx.beginPath(); ctx.moveTo(left, Y(opts.hline)); ctx.lineTo(w - right, Y(opts.hline)); ctx.stroke();
+  }
+  for (const s of series) {
+    ctx.setLineDash(s.dash ? s.dash.map(d => d * dpr) : []);
+    ctx.strokeStyle = s.color; ctx.lineWidth = (s.width || 2) * dpr; ctx.beginPath();
+    const n = s.values.length;
+    s.values.forEach((v, i) => { const x = X(n > 1 ? i / (n - 1) : 0); i ? ctx.lineTo(x, Y(v)) : ctx.moveTo(x, Y(v)); });
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.strokeStyle = "rgba(230,232,236,.8)"; ctx.lineWidth = dpr;
+  ctx.beginPath(); ctx.moveTo(X(cursor), top); ctx.lineTo(X(cursor), h - bottom); ctx.stroke();
+}
+function legend(id, items) {
+  document.getElementById(id).innerHTML = items.map(s =>
+    `<span><i style="border-color:${s.color};${s.dash ? "border-top-style:dashed" : ""}"></i>${s.name}</span>`).join("");
+}
+const persistence = { name: "persistencia", color: "#8b93a1", dash: [5, 4] };
+const errorSeries = [{ ...persistence, values: DATA.persistenceError }, ...runs.map(r => ({ name: r.name, color: r.color, values: r.error }))];
+const corrSeries = [{ ...persistence, values: DATA.persistenceCorr }, ...runs.map(r => ({ name: r.name, color: r.color, values: r.corr }))];
+legend("lError", errorSeries);
+legend("lCorr", [...corrSeries, { name: `umbral ${DATA.threshold}`, color: "#e6e8ec", dash: [2, 3] }]);
+const GROUP_COLORS = { sensoriales: "#ffffff", compartidas: "#ff5fd2", motoras: "#f2c14e", interior: "#4d9de0" };
+const DASHES = [null, [6, 4], [2, 3]];
+const signalSeries = runs.flatMap((r, k) => Object.entries(r.groups).map(([g, values]) =>
+  ({ name: `${r.name} · ${g}`, color: GROUP_COLORS[g], dash: DASHES[k % DASHES.length], values, width: 1.6 })));
+legend("lSignal", [
+  ...Object.entries(GROUP_COLORS).map(([name, color]) => ({ name, color })),
+  ...runs.map((r, k) => ({ name: `${r.name}${k ? (k === 1 ? " (discontinua)" : " (punteada)") : " (continua)"}`, color: r.color, dash: k > 0 })),
+]);
+
+// ---------- bucle ----------
+let frame = 0, playing = true;
+function render() {
+  const step = Math.floor(frame / S);
+  paint(truthCtx, i => truth[step * G * G + i] / 127);
+  paint(trueDeltaCtx, i => trueDelta[step * G * G + i] / 127);
+  paint(persistenceErrCtx, i => (initial[i] - truth[step * G * G + i]) / 127);
+  for (const r of runs) {
+    const o = step * G * G;
+    paint(r.fieldCtx, i => r.fields[o + i] / 127);
+    paint(r.errCtx, i => (r.fields[o + i] - truth[o + i]) / 127);
+    paint(r.deltaCtx, i => r.deltas[o + i] / 127);
+    r.numField.textContent = `corr ${r.corr[step].toFixed(3)}`;
+    r.numErr.textContent = `L2 ${r.error[step].toFixed(3)} (pers. ${DATA.persistenceError[step].toFixed(3)})`;
+    r.numDelta.textContent = `error de Δω ${r.deltaError[step].toFixed(3)} (pers. 1,000)`;
+    drawBrain(r, frame);
+  }
+  const fStep = STEPS > 1 ? step / (STEPS - 1) : 0, fFrame = FRAMES > 1 ? frame / (FRAMES - 1) : 0;
+  lineChart(document.getElementById("cError"), errorSeries, { ymin: 0 }, fStep);
+  lineChart(document.getElementById("cCorr"), corrSeries, { ymin: Math.min(0, ...corrSeries.flatMap(s => s.values)), ymax: 1, hline: DATA.threshold }, fStep);
+  lineChart(document.getElementById("cSignal"), signalSeries, { ymin: 0, fmt: v => v.toFixed(3) }, fFrame);
+  document.getElementById("scrub").value = frame;
+  document.getElementById("clock").textContent =
+    `t = ${((step + 1) * DATA.dtSave).toFixed(1)} · paso ${step + 1}/${STEPS} · subpaso ${frame % S + 1}/${S}`;
+}
+const scrub = document.getElementById("scrub");
+scrub.max = FRAMES - 1;
+scrub.addEventListener("input", () => { frame = +scrub.value; render(); });
+const play = document.getElementById("play");
+function toggle() { playing = !playing; play.textContent = playing ? "⏸ Pausa" : "▶ Play"; }
+play.addEventListener("click", toggle);
+document.addEventListener("keydown", e => {
+  if (e.code === "Space") { e.preventDefault(); toggle(); }
+  if (e.code === "ArrowRight") { frame = Math.min(FRAMES - 1, frame + 1); render(); }
+  if (e.code === "ArrowLeft") { frame = Math.max(0, frame - 1); render(); }
+});
+for (const id of ["ports", "scaleMode"]) document.getElementById(id).addEventListener("change", render);
+window.addEventListener("resize", render);
+
+let last = 0;
+function tick(now) {
+  const fps = +document.getElementById("speed").value;
+  if (playing && now - last > 1000 / fps) {
+    last = now;
+    frame = (frame + 1) % FRAMES;
+    render();
+  }
+  requestAnimationFrame(tick);
+}
+render();
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

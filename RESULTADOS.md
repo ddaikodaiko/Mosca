@@ -87,7 +87,7 @@ artifacts/ns64_validacion/   4+2+2 trayectorias 64x64 de validacion fisica      
 
 El set real de 64x64 (200+40+40 trayectorias, ~900 MB) **no se genera en el portatil**:
 serian 13 min de CPU sostenida. Se genera en el PC con GPU con el mismo script, el mismo
-YAML y las mismas semillas. Comando en `TRASPASO.md`.
+YAML y las mismas semillas (ver "Ejecutarlo" en el README).
 
 ---
 
@@ -478,7 +478,7 @@ todavia: las cinco fases cuelgan de cinco ramas encadenadas.
 - **`denso` no arranca.** Detectado al probar los seis modelos uno a uno, que era lo unico
   que quedaba por hacer en el portatil antes de encender la GPU. Iguala el presupuesto de
   parametros con 420 neuronas y el diseno pide 256 + 256 puertos disjuntos. Habria reventado
-  el entrenamiento 10 de 15 en la GPU. Tres salidas posibles, todas con coste, en las notas del proyecto.
+  el entrenamiento 10 de 15 en la GPU. Tres salidas posibles, todas con coste (resuelto el 16-09-2026, ver mas abajo).
   Los otros cinco modelos construyen, propagan gradiente y despliegan sin problema.
 
 ### Decisiones del usuario, abiertas

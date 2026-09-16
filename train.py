@@ -58,6 +58,7 @@ class Augmenter:
 
     enabled: bool
     forcing_wavenumber: int
+    continuous_x: bool = False
 
     def __call__(self, *tensors: Tensor, generator: torch.Generator) -> tuple[Tensor, ...]:
         if not self.enabled:
@@ -72,19 +73,35 @@ class Augmenter:
         # forzado sin(k_f y), en la -1 (columnas). Hasta el 16-09-2026 estaban cambiados:
         # la traslacion libre caia sobre el eje forzado y los pares tenian un 4 % de
         # error fisico (verificado con el simulador en tests/test_masked_rnn.py).
-        shift_x = torch.randint(0, grid, (batch,), generator=generator, device=device)
+        axis = torch.arange(grid, device=device)
+        # Mismo orden de sorteo que antes (x y luego y): con continuous_x apagado, las
+        # secuencias aleatorias son identicas a las de los entrenamientos ya hechos.
+        if self.continuous_x:
+            # Traslacion por fase de Fourier, en fracciones de casilla. Exacta para campos
+            # de banda limitada; el simulador desaliasa por encima de n/3, asi que lo es.
+            shift_x = torch.rand(batch, generator=generator, device=device).double() * grid
+            # Fase en float64: en float32 el error de redondeo ya es 1e-7 con saltos enteros.
+            k = torch.fft.fftfreq(grid, d=1.0 / grid, device=device, dtype=torch.float64)
+            if grid % 2 == 0:
+                k[grid // 2] = 0.0  # Nyquist: sin signo definido, y nulo tras desaliasar
+            phase = torch.exp(-2j * torch.pi * k[None, :] * shift_x[:, None] / grid)
+        else:
+            shift_x = torch.randint(0, grid, (batch,), generator=generator, device=device)
+            index_x = (axis[None, :] - shift_x[:, None]) % grid
         shift_y = torch.randint(0, self.forcing_wavenumber, (batch,), generator=generator,
                                 device=device) * step_y
-        axis = torch.arange(grid, device=device)
-        index_x = (axis[None, :] - shift_x[:, None]) % grid
         index_y = (axis[None, :] - shift_y[:, None]) % grid
 
         rolled = []
         for tensor in tensors:
             extra = tensor.shape[1:-2]  # el horizonte de la fase B, si lo hay
             view = tensor.reshape(batch, -1, grid, grid)
-            ix = index_x[:, None, :, None].expand(-1, view.shape[1], -1, grid)
-            view = view.gather(2, ix)
+            if self.continuous_x:
+                spectrum = torch.fft.fft(view, dim=2) * phase[:, None, :, None]
+                view = torch.fft.ifft(spectrum, dim=2).real.to(tensor.dtype)
+            else:
+                ix = index_x[:, None, :, None].expand(-1, view.shape[1], -1, grid)
+                view = view.gather(2, ix)
             iy = index_y[:, None, None, :].expand(-1, view.shape[1], grid, -1)
             view = view.gather(3, iy)
             rolled.append(view.reshape(batch, *extra, grid, grid))
@@ -96,6 +113,7 @@ class Augmenter:
         return cls(
             enabled=bool(section.get("enabled", False)),
             forcing_wavenumber=int(section.get("forcing_wavenumber", 4)),
+            continuous_x=bool(section.get("continuous_x", False)),
         )
 
 
@@ -152,10 +170,15 @@ def build_model(name: str, cfg: dict[str, Any], grid: int, seed: int) -> nn.Modu
             output_scale=float(cfg["core"]["output_scale"]),
         )
     wiring = build_wiring({"wiring": name, "wiring_dir": cfg["wiring_dir"]}, seed)
+    port_wiring = (
+        build_wiring({"wiring": "mosca", "wiring_dir": cfg["wiring_dir"]}, seed)
+        if name == "sin_nucleo" else None
+    )
     encoder, core = cfg["encoder"], cfg["core"]
     return ConnectomeFlowModel(
         wiring,
         grid=grid,
+        port_wiring=port_wiring,
         n_complex_modes=int(encoder["n_complex_modes"]),
         n_sensory=int(encoder["n_sensory"]),
         n_motor=int(encoder["n_motor"]),

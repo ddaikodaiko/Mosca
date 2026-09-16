@@ -79,6 +79,18 @@ class Wiring:
         )
 
 
+    @classmethod
+    def without_edges(cls, reference: "Wiring") -> "Wiring":
+        """Control 'sin_nucleo': las mismas neuronas y signos, ninguna conexion.
+
+        Con leak 1 cada neurona queda en tanh(entrada + sesgo): lo que pase de las
+        sensoriales a las motoras solo puede ir por las neuronas compartidas. Si la mosca
+        no le gana a esto, lo que predice no lo hace su cableado.
+        """
+        empty = np.zeros(0, dtype=np.int32)
+        return cls(rows=empty, cols=empty.copy(), synapses=empty.copy(), sign=reference.sign.copy())
+
+
 def dense_neurons_for_budget(n_edges: int) -> int:
     """Neuronas de una red densa con el mismo numero de parametros entrenables."""
     return max(2, int(round((1 + math.sqrt(1 + 4 * n_edges)) / 2)))
@@ -132,6 +144,8 @@ class MaskedRecurrentCore(nn.Module):
                    entrada ponderado) ANTES de escalar el autovalor mayor. Sube el grueso
                    del espectro a 0,55 sin tocar el maximo.
         """
+        if wiring.n_edges == 0:
+            return np.zeros(0, dtype=np.float32)
         magnitude = wiring.synapses.astype(np.float64)
         magnitude = magnitude / magnitude.mean()
         if normalisation == "row":
@@ -270,6 +284,7 @@ class ConnectomeFlowModel(nn.Module):
         grid: int,
         n_shared: int,
         n_complex_modes: int = 128,
+        port_wiring: Wiring | None = None,
         n_sensory: int = 256,
         n_motor: int = 256,
         n_internal_steps: int = 4,
@@ -285,7 +300,8 @@ class ConnectomeFlowModel(nn.Module):
             wiring, n_internal_steps, spectral_radius, leak, normalisation
         )
 
-        sensory, motor = select_ports(wiring, n_sensory, n_motor, n_shared)
+        # Los puertos se eligen por grado; el control sin nucleo usa los de la mosca.
+        sensory, motor = select_ports(port_wiring or wiring, n_sensory, n_motor, n_shared)
         self.register_buffer("sensory", torch.from_numpy(sensory))
         self.register_buffer("motor", torch.from_numpy(motor))
         modes, mirror_source, mirror_target = low_frequency_modes(grid, n_complex_modes)
@@ -360,8 +376,10 @@ class ConnectomeFlowModel(nn.Module):
 
 
 def build_wiring(cfg: dict[str, Any], seed: int) -> Wiring:
-    """Carga el cableado que pide la config: mosca, aleatorio, recableado o denso."""
+    """Carga el cableado que pide la config: mosca, aleatorio, recableado, denso o sin_nucleo."""
     name = cfg["wiring"]
+    if name == "sin_nucleo":
+        return Wiring.without_edges(Wiring.load(Path(cfg["wiring_dir"]) / "mosca.npz"))
     if name == "denso":
         reference = Wiring.load(Path(cfg["wiring_dir"]) / "mosca.npz")
         n_dense = dense_neurons_for_budget(reference.n_edges)

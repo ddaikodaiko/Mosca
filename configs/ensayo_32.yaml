@@ -1,0 +1,57 @@
+# ENSAYO GENERAL del portatil: los seis modelos x 3 semillas a N=500, malla 32x32.
+# No es el resultado. Responde una sola cosa antes de gastar GPU: si la comparacion
+# mosca contra controles tiene alguna resolucion o si todo empata en la persistencia.
+# ~30 min de CPU en total: se lanza troceado por modelo y semilla (regla 6).
+#   python train.py --config configs/ensayo_32.yaml --model mosca --seed 0
+device: auto
+data_dir: artifacts/ns32
+wiring_dir: artifacts/conectoma_500_proto
+output_dir: artifacts/ensayo_32
+grad_clip: 1.0
+
+max_trajectories: {train: 200, val: 40}   # el set ns32 completo
+
+core:
+  n_internal_steps: 4
+  spectral_radius: 0.95
+  normalisation: max_eig
+
+  leak: 1.0
+  output_scale: 0.1
+
+encoder:
+  n_complex_modes: 64      # 128 numeros reales
+  n_sensory: 64            # el denso de N=500 tiene 97 neuronas: 64 + 64 - 31 = 97
+  n_motor: 64
+  n_shared: 31
+
+fno: {modes: 8, width: 16, n_layers: 3}
+
+phase_a:
+  steps: 4000
+  batch_size: 16
+  lr: 3.0e-3
+  eval_every: 500
+  patience: 3
+
+phase_b:
+  curriculum: [5]          # el curriculo completo (5, 10, 20) es para la GPU
+  steps_per_stage: 60
+  batch_size: 8
+  lr: 3.0e-4
+  eval_every: 20
+  patience: 3
+
+# Simetrias exactas del sistema: traslacion libre en x, y en y por periodos del forzado.
+augment:
+  enabled: true
+  forcing_wavenumber: 4
+
+evaluation:
+  rollout_steps: 50
+  correlation_threshold: 0.8
+  permutations: 10000
+
+eval_rollouts: [10, 50]
+models: [persistencia, mosca, aleatorio, recableado, denso, fno]
+seeds: [0, 1, 2]

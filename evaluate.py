@@ -43,13 +43,14 @@ COLORES: dict[str, str] = {
     "aleatorio": "#eb6834",
     "recableado": "#1baf7a",
     "denso": "#eda100",
+    "sin_nucleo": "#8a5cd8",
     "fno": "#e87ba4",
 }
 GRIS_REFERENCIA = "#52514e"
 TINTA_PRIMARIA = "#0b0b0b"
 TINTA_SECUNDARIA = "#52514e"
 SUPERFICIE = "#fcfcfb"
-ORDEN = ["mosca", "aleatorio", "recableado", "denso", "fno"]
+ORDEN = ["mosca", "aleatorio", "recableado", "denso", "sin_nucleo", "fno"]
 
 
 @dataclass(frozen=True)
@@ -448,7 +449,7 @@ def main() -> int:
     if "mosca" in crudos:
         for clave in ("l2_despliegue_por_trayectoria", "tiempo_corr_por_trayectoria"):
             mosca = np.mean([c[clave] for c in crudos["mosca"]], axis=0)
-            for control in ("aleatorio", "recableado", "denso", "fno"):
+            for control in ("aleatorio", "recableado", "denso", "sin_nucleo", "fno"):
                 if control not in crudos:
                     continue
                 otro = np.mean([c[clave] for c in crudos[control]], axis=0)
