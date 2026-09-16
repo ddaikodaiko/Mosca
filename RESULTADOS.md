@@ -498,3 +498,27 @@ todavia: las cinco fases cuelgan de cinco ramas encadenadas.
 - **Fusionar las ramas a `main`.**
 - **La mitad barata del visualizador**, que ahora sirve de diagnostico y no solo de video:
   el nucleo apenas se activa (`|h|` medio 0,012 fuera de las sensoriales).
+
+---
+
+## 16-09-2026: puertos con solape fijo
+
+Decisiones del usuario: `denso` se arregla con solape de puertos en los seis modelos, y el
+aumento de datos queda aprobado.
+
+El solape libre (cada puerto elegido solo por su grado) daba estas neuronas compartidas
+entre sensoriales y motoras, con 256 de cada:
+
+| modelo | N | compartidas |
+|---|---|---|
+| mosca | 4.000 | 159 |
+| recableado | 4.000 | 159 |
+| aleatorio | 4.000 | 18 |
+| denso | 420 | 256 (grados identicos: desempate por indice) |
+
+Cada compartida es un atajo entrada -> salida que no pasa por la recurrencia, y la mosca
+habria tenido nueve veces mas que el aleatorio. Se fija `n_shared = 92` (256 + 256 - 420)
+en todos; medido tras el cambio: 92/256 en los cuatro. `denso` construye, propaga,
+retropropaga con gradiente finito y despliega a 64x64. `pytest -q`: **59 pasan**.
+
+Los resultados del prototipo de la fase 4 usaban puertos disjuntos: quedan obsoletos.

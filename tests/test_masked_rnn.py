@@ -43,7 +43,7 @@ def toy_wiring(n_neurons: int = 40, density: float = 0.15, seed: int = 0) -> Wir
 
 def test_la_mascara_sigue_a_cero_tras_100_pasos_de_optimizacion() -> None:
     wiring = toy_wiring()
-    model = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8)
+    model = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8, n_shared=2)
     optimiser = torch.optim.Adam(model.parameters(), lr=1e-2)
 
     outside = model.core.dense_matrix().detach() == 0
@@ -67,7 +67,7 @@ def test_la_mascara_sigue_a_cero_tras_100_pasos_de_optimizacion() -> None:
 
 def test_ninguna_neurona_cambia_de_signo_al_entrenar() -> None:
     wiring = toy_wiring(seed=1)
-    model = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8)
+    model = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8, n_shared=2)
     optimiser = torch.optim.Adam(model.parameters(), lr=1e-1)  # lr agresivo a proposito
 
     before = torch.sign(model.core.weights().detach())
@@ -88,7 +88,7 @@ def test_ninguna_neurona_cambia_de_signo_al_entrenar() -> None:
 def test_el_entrenamiento_mueve_de_verdad_los_pesos() -> None:
     """Contrapeso de los dos anteriores: pasarian tambien con gradiente nulo."""
     wiring = toy_wiring(seed=2)
-    model = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8)
+    model = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8, n_shared=2)
     optimiser = torch.optim.Adam(model.parameters(), lr=1e-2)
     before = model.core.theta.detach().clone()
 
@@ -110,18 +110,33 @@ def test_radio_espectral_inicial_cerca_del_objetivo() -> None:
     assert abs(radius - 0.95) < 1e-3
 
 
-def test_los_puertos_sensorial_y_motor_son_disjuntos() -> None:
+def test_los_puertos_comparten_exactamente_n_shared_neuronas() -> None:
     wiring = toy_wiring(seed=4)
-    sensory, motor = select_ports(wiring, 8, 8)
-    assert sensory.size == 8 and motor.size == 8
-    assert not set(sensory.tolist()) & set(motor.tolist())
+    for n_shared in (0, 3, 8):
+        sensory, motor = select_ports(wiring, 8, 8, n_shared)
+        assert sensory.size == 8 and motor.size == 8
+        assert len(set(sensory.tolist()) & set(motor.tolist())) == n_shared
+    out_degree = np.bincount(wiring.rows, minlength=wiring.n_neurons)
+    assert out_degree[sensory].min() >= np.delete(out_degree, sensory).max()
+    with pytest.raises(ValueError):
+        select_ports(wiring, 30, 30, 0)  # 60 > 40 neuronas
+    with pytest.raises(ValueError):
+        select_ports(wiring, 8, 4, 5)  # mas compartidas que motoras
+
+
+def test_el_denso_arranca_con_los_puertos_de_la_config_real() -> None:
+    """Regresion: 420 neuronas no admitian 256 + 256 puertos disjuntos."""
+    wiring = Wiring.dense(dense_neurons_for_budget(175_744), 0.4, seed=0)
+    assert wiring.n_neurons == 256 + 256 - 92
+    sensory, motor = select_ports(wiring, 256, 256, 92)
+    assert len(set(sensory.tolist()) & set(motor.tolist())) == 92
 
 
 def test_codificar_y_decodificar_es_un_filtro_paso_bajo_idempotente() -> None:
     """Decode(encode(x)) debe ser la proyeccion a los modos bajos: aplicarla dos veces
     tiene que dar lo mismo. Fija el contrato del codificador."""
     wiring = toy_wiring(seed=5)
-    model = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8)
+    model = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8, n_shared=2)
     x = torch.randn(2, 16, 16)
     once = model.decode(model.encode(x))
     twice = model.decode(model.encode(once))
@@ -140,7 +155,7 @@ def test_modos_bajos_ordenados_por_frecuencia() -> None:
 def test_el_codificador_conserva_la_energia_de_los_modos_que_guarda() -> None:
     """Si se pierde el espejo conjugado, la amplitud de esos modos se parte por dos."""
     wiring = toy_wiring(seed=8)
-    model = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8)
+    model = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8, n_shared=2)
     x = torch.randn(3, 16, 16)
     filtered = model.decode(model.encode(x))
     assert torch.allclose(model.encode(filtered), model.encode(x), atol=1e-5)
@@ -148,7 +163,7 @@ def test_el_codificador_conserva_la_energia_de_los_modos_que_guarda() -> None:
 
 def test_prediccion_residual_arranca_cerca_de_la_persistencia() -> None:
     wiring = toy_wiring(seed=6)
-    model = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8)
+    model = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8, n_shared=2)
     x = torch.randn(4, 16, 16)
     prediction, _, _ = model(x)
     assert float((prediction - x).std()) < float(x.std())
@@ -170,7 +185,7 @@ def test_wiring_denso_no_tiene_autoconexiones() -> None:
 def test_traza_de_activaciones_para_el_visualizador() -> None:
     """El visualizador necesita las N activaciones de cada paso interno."""
     wiring = toy_wiring(seed=7)
-    model = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8)
+    model = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8, n_shared=2)
     _, _, trace = model(torch.randn(2, 16, 16), record=True)
     assert len(trace) == model.core.n_internal_steps
     assert trace[0].shape == (2, wiring.n_neurons)
@@ -190,7 +205,7 @@ def test_los_tres_cableados_tienen_los_mismos_parametros_entrenables() -> None:
     counts = {}
     for name in ("mosca", "aleatorio", "recableado"):
         wiring = Wiring.load(ARTIFACTS / f"{name}.npz")
-        model = ConnectomeFlowModel(wiring, grid=64)
+        model = ConnectomeFlowModel(wiring, grid=64, n_shared=92)
         counts[name] = sum(p.numel() for p in model.parameters() if p.requires_grad)
     assert len(set(counts.values())) == 1, counts
 
@@ -199,7 +214,7 @@ def test_la_normalizacion_de_entrada_saca_a_tanh_de_la_saturacion() -> None:
     """Los coeficientes de Fourier de un campo de rms ~2 llegan a valer ~20: sin
     normalizar, las neuronas sensoriales saturan y el gradiente se muere."""
     wiring = toy_wiring(seed=9)
-    model = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8)
+    model = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8, n_shared=2)
     campo = torch.randn(64, 16, 16) * 2.2
 
     crudo = model.encode(campo)
@@ -214,11 +229,11 @@ def test_la_normalizacion_de_entrada_saca_a_tanh_de_la_saturacion() -> None:
 def test_las_estadisticas_viajan_en_el_state_dict() -> None:
     """Si no van en el checkpoint, el modelo evaluado no es el entrenado."""
     wiring = toy_wiring(seed=10)
-    model = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8)
+    model = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8, n_shared=2)
     model.fit_feature_statistics(torch.randn(32, 16, 16) * 3.0)
     assert "feature_std" in model.state_dict()
 
-    copia = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8)
+    copia = ConnectomeFlowModel(wiring, grid=16, n_complex_modes=8, n_sensory=8, n_motor=8, n_shared=2)
     copia.load_state_dict(model.state_dict())
     x = torch.randn(4, 16, 16)
     assert torch.allclose(model.encode(x), copia.encode(x))

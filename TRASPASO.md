@@ -57,27 +57,20 @@ trocear por modelo y por semilla, que los checkpoints son independientes:
 python train.py --config configs/entrenamiento_64.yaml --model mosca --seed 0
 ```
 
-## 5. Antes de lanzar, TRES decisiones abiertas
+## 5. Antes de lanzar
 
-0. **`denso` no arranca todavia.** `ValueError: no hay neuronas suficientes para tantos
-   puertos`: iguala parametros con 420 neuronas, pero el diseno pide 256 sensoriales mas
-   256 motoras disjuntas. Si se lanza la lista completa de modelos, revienta el
-   entrenamiento 10 de 15 **despues de horas de GPU**. Hasta decidirlo, lanzar sin el:
+Resuelto el 16-09-2026, ya no bloquea:
 
-   ```bash
-   # en configs/entrenamiento_64.yaml, quitar 'denso' de models:
-   models: [persistencia, mosca, aleatorio, recableado, fno]
-   ```
+- **`denso` arranca.** Los seis modelos comparten exactamente `encoder.n_shared: 92`
+  neuronas entre sensoriales y motoras (el minimo para que quepa el denso de 420
+  neuronas). Se lanza con la lista completa de modelos.
+- **`augment.enabled: true`** aprobado por el usuario para los seis modelos (simetrias
+  exactas: traslacion en x, y en y por periodos del forzado). Desviacion de la receta del
+  diseno, documentada.
 
-   Las tres salidas posibles estan en las notas del proyecto, en "Hallazgos que condicionan fases
-   posteriores". Es decision de diseno, no un parche.
+Sigue abierta una decision:
 
-1. **`augment.enabled: true`** en el YAML. Es aumento de datos por simetrias exactas del
-   sistema (traslacion en x, y en y por periodos del forzado). Sin el, ningun modelo con
-   mascara supera a la persistencia. Es una **desviacion de la receta del diseno** y
-   sigue pendiente del visto bueno del usuario. Se apaga poniendolo a `false`.
-
-2. **Que hacer si el nucleo con mascara no se despega de la persistencia.** En el
+1. **Que hacer si el nucleo con mascara no se despega de la persistencia.** En el
    prototipo (32x32, N=500) mosca dio 0,0999 y aleatorio 0,0998, con la persistencia en
    0,1001: empatan porque ninguno aprende. Si eso se repite a escala real, el experimento
    no tiene resolucion para responder a la pregunta del proyecto y **el empate no se debe

@@ -13,7 +13,8 @@ core:
 encoder:
   n_complex_modes: 128    # 256 numeros reales (parte real + imaginaria)
   n_sensory: 256          # neuronas de mayor grado de salida
-  n_motor: 256            # neuronas de mayor grado de entrada, disjuntas de las sensoriales
+  n_motor: 256            # neuronas de mayor grado de entrada
+  n_shared: 92            # sensoriales que tambien son motoras, igual en los 6 modelos (256+256-420)
 
 fno:
   modes: 12

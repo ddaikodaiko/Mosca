@@ -18,6 +18,7 @@ encoder:
   n_complex_modes: 128    # 256 numeros reales
   n_sensory: 256
   n_motor: 256
+  n_shared: 92          # atajos entrada->salida, igual en los 6 modelos; minimo para denso
 
 fno: {modes: 12, width: 32, n_layers: 4}
 

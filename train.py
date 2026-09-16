@@ -155,6 +155,7 @@ def build_model(name: str, cfg: dict[str, Any], grid: int, seed: int) -> nn.Modu
         n_complex_modes=int(encoder["n_complex_modes"]),
         n_sensory=int(encoder["n_sensory"]),
         n_motor=int(encoder["n_motor"]),
+        n_shared=int(encoder["n_shared"]),
         n_internal_steps=int(core["n_internal_steps"]),
         spectral_radius=float(core["spectral_radius"]),
         leak=float(core["leak"]),

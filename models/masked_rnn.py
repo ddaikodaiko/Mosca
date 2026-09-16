@@ -195,20 +195,34 @@ def _spectral_radius(matrix: sp.spmatrix) -> float:
         return float(np.max(np.abs(np.linalg.eigvals(matrix.toarray()))))
 
 
-def select_ports(wiring: Wiring, n_sensory: int, n_motor: int) -> tuple[np.ndarray, np.ndarray]:
-    """Sensoriales = mas salidas hacia el resto; motoras = mas entradas, y disjuntas."""
+def select_ports(
+    wiring: Wiring, n_sensory: int, n_motor: int, n_shared: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Sensoriales = mas salidas hacia el resto; motoras = mas entradas.
+
+    Exactamente `n_shared` neuronas son a la vez sensoriales y motoras: las sensoriales
+    de mayor grado de entrada. El resto de motoras sale de las no sensoriales. Cada
+    neurona compartida es un atajo entrada -> tanh -> salida que no pasa por la
+    recurrencia, asi que su numero se fija igual en los seis modelos. Con solape libre
+    saldria 159 en la mosca y 18 en el aleatorio, y la mosca ganaria por los atajos.
+    El minimo lo impone el control denso: 256 + 256 - 420 = 92.
+    """
     n = wiring.n_neurons
-    if n_sensory + n_motor > n:
+    if not 0 <= n_shared <= min(n_sensory, n_motor):
+        raise ValueError("n_shared tiene que estar entre 0 y el menor de los puertos")
+    if n_sensory + n_motor - n_shared > n:
         raise ValueError("no hay neuronas suficientes para tantos puertos")
     out_degree = np.bincount(wiring.rows, minlength=n)
     in_degree = np.bincount(wiring.cols, minlength=n)
 
-    sensory = np.argsort(-out_degree, kind="stable")[:n_sensory].astype(np.int64)
-    taken = np.zeros(n, dtype=bool)
-    taken[sensory] = True
+    sensory = np.argsort(-out_degree, kind="stable")[:n_sensory]
+    is_sensory = np.zeros(n, dtype=bool)
+    is_sensory[sensory] = True
     order = np.argsort(-in_degree, kind="stable")
-    motor = order[~taken[order]][:n_motor].astype(np.int64)
-    return np.sort(sensory), np.sort(motor)
+    shared = order[is_sensory[order]][:n_shared]
+    exclusive = order[~is_sensory[order]][: n_motor - n_shared]
+    motor = np.concatenate([shared, exclusive])
+    return np.sort(sensory).astype(np.int64), np.sort(motor).astype(np.int64)
 
 
 def low_frequency_modes(grid: int, n_modes: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -254,6 +268,7 @@ class ConnectomeFlowModel(nn.Module):
         self,
         wiring: Wiring,
         grid: int,
+        n_shared: int,
         n_complex_modes: int = 128,
         n_sensory: int = 256,
         n_motor: int = 256,
@@ -270,7 +285,7 @@ class ConnectomeFlowModel(nn.Module):
             wiring, n_internal_steps, spectral_radius, leak, normalisation
         )
 
-        sensory, motor = select_ports(wiring, n_sensory, n_motor)
+        sensory, motor = select_ports(wiring, n_sensory, n_motor, n_shared)
         self.register_buffer("sensory", torch.from_numpy(sensory))
         self.register_buffer("motor", torch.from_numpy(motor))
         modes, mirror_source, mirror_target = low_frequency_modes(grid, n_complex_modes)
