@@ -68,6 +68,10 @@ class Augmenter:
         device = reference.device
         step_y = max(1, grid // max(self.forcing_wavenumber, 1))
 
+        # Ejes como en data/spectral.py: kx va en la dimension -2 (filas) y ky, la del
+        # forzado sin(k_f y), en la -1 (columnas). Hasta el 16-09-2026 estaban cambiados:
+        # la traslacion libre caia sobre el eje forzado y los pares tenian un 4 % de
+        # error fisico (verificado con el simulador en tests/test_masked_rnn.py).
         shift_x = torch.randint(0, grid, (batch,), generator=generator, device=device)
         shift_y = torch.randint(0, self.forcing_wavenumber, (batch,), generator=generator,
                                 device=device) * step_y
@@ -79,10 +83,10 @@ class Augmenter:
         for tensor in tensors:
             extra = tensor.shape[1:-2]  # el horizonte de la fase B, si lo hay
             view = tensor.reshape(batch, -1, grid, grid)
-            iy = index_y[:, None, :, None].expand(-1, view.shape[1], -1, grid)
-            view = view.gather(2, iy)
-            ix = index_x[:, None, None, :].expand(-1, view.shape[1], grid, -1)
-            view = view.gather(3, ix)
+            ix = index_x[:, None, :, None].expand(-1, view.shape[1], -1, grid)
+            view = view.gather(2, ix)
+            iy = index_y[:, None, None, :].expand(-1, view.shape[1], grid, -1)
+            view = view.gather(3, iy)
             rolled.append(view.reshape(batch, *extra, grid, grid))
         return tuple(rolled)
 
@@ -414,8 +418,16 @@ def main() -> int:
         "torch": torch.__version__,
         "resultados": results,
     }
-    (out_dir / "train_report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False))
-    print(f"\ninforme en {out_dir / 'train_report.json'}")
+    # Al trocear por modelo o semilla, cada trozo escribe su informe y no pisa los demas.
+    suffix = "".join(
+        part for part in (
+            f"_{args.model}" if args.model else "",
+            f"_s{args.seed}" if args.seed is not None else "",
+        )
+    )
+    report_path = out_dir / f"train_report{suffix}.json"
+    report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False))
+    print(f"\ninforme en {report_path}")
     return 0
 
 

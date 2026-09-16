@@ -253,19 +253,38 @@ def test_el_aumento_traslada_entrada_y_objetivo_por_lo_mismo() -> None:
     assert torch.allclose(movido.std(dim=(1, 2)), campo.std(dim=(1, 2)), atol=1e-5)
 
 
-def test_el_aumento_solo_usa_traslaciones_permitidas_en_y() -> None:
-    """En y solo son simetria los multiplos del periodo del forzado: grid / k_f."""
+def test_el_aumento_produce_transiciones_validas_del_simulador() -> None:
+    """El par aumentado tiene que ser exactamente lo que el simulador habria dado.
+
+    Regresion: los ejes estaban cambiados y la traslacion libre caia sobre el eje del
+    forzado; los pares aumentados tenian un 4 % de error fisico y ningun test lo veia
+    porque el test anterior cometia el mismo error de ejes.
+    """
+    from data.spectral import make_grid, rk4_step
     from train import Augmenter
 
-    augmenter = Augmenter(enabled=True, forcing_wavenumber=4)
-    generator = torch.Generator().manual_seed(1)
     grid = 16
-    # Un campo que solo depende de y: tras un desplazamiento permitido debe coincidir
-    # con alguna traslacion de si mismo en multiplos de grid/4 = 4 casillas.
-    perfil = torch.sin(2 * math.pi * 4 * torch.arange(grid) / grid)
-    campo = perfil[None, :, None].expand(32, grid, grid).clone()
-    (movido,) = augmenter(campo, generator=generator)
-    assert torch.allclose(movido, campo, atol=1e-5)  # sin(4y) es invariante a esos saltos
+    spectral = make_grid(grid, device=torch.device("cpu"))
+    rng = np.random.default_rng(0)
+    omega = torch.from_numpy(rng.standard_normal((6, grid, grid)))
+
+    def simulate(field: torch.Tensor) -> torch.Tensor:
+        w_hat = torch.fft.rfft2(field)
+        for _ in range(5):
+            w_hat = rk4_step(w_hat, 0.01, spectral, 1e-3, 0.1)
+        return torch.fft.irfft2(w_hat, s=(grid, grid))
+
+    target = simulate(omega)
+    augmenter = Augmenter(enabled=True, forcing_wavenumber=4)
+    moved, moved_target = augmenter(omega, target, generator=torch.Generator().manual_seed(3))
+    assert not torch.equal(moved, omega)
+    error = torch.linalg.vector_norm(simulate(moved) - moved_target) / torch.linalg.vector_norm(moved_target)
+    assert float(error) < 1e-10
+
+    # Y el eje de las columnas es el forzado: trasladar una casilla ahi NO es simetria.
+    broken = torch.roll(omega, 1, dims=-1)
+    error = torch.linalg.vector_norm(simulate(broken) - torch.roll(target, 1, dims=-1))
+    assert float(error / torch.linalg.vector_norm(target)) > 1e-4
 
 
 def test_el_aumento_desactivado_no_toca_nada() -> None:
