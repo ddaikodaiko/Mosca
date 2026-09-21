@@ -50,12 +50,31 @@ from train_rl import load_wirings
 METRICAS = ("progreso", "meta", "recompensa")
 
 
+def es_nes(cfg: dict[str, Any]) -> bool:
+    return cfg.get("env", "propio") == "nes"
+
+
 def niveles_de_test(cfg: dict[str, Any], n_levels: int) -> list[int]:
+    """Semillas de test. En el entorno propio son niveles; en el NES eligen nivel y
+    espera inicial dentro del conjunto de prueba, que es disjunto del de entrenamiento."""
+    if es_nes(cfg):
+        return list(range(n_levels))
     low, high = SeedRanges.from_config(cfg).range("test")
     return [low + i % (high - low) for i in range(n_levels)]
 
 
-def construye_entorno(cfg: dict[str, Any]) -> PlatformerEnv:
+def construye_entorno(cfg: dict[str, Any], split: str = "test"):
+    if es_nes(cfg):
+        from envs.nes_mario import NesConfig, NesMarioEnv
+
+        nes = dict(cfg.get("nes", {}))
+        nivel = nes.pop("stage", None)
+        env = NesMarioEnv("train" if nivel else split,
+                          ObservationConfig(**cfg.get("observation", {})), NesConfig(**nes))
+        if nivel is not None:
+            # La demo fija un nivel: entrena y mide en el mismo, y lo dice su YAML.
+            env.stages = (tuple(nivel),)
+        return env
     return PlatformerEnv(
         LevelConfig(**cfg.get("level", {})),
         ObservationConfig(**cfg.get("observation", {})),
@@ -65,7 +84,7 @@ def construye_entorno(cfg: dict[str, Any]) -> PlatformerEnv:
 
 
 def juega(
-    cfg: dict[str, Any], semillas: list[int], accion: Callable[[PlatformerEnv, np.ndarray], int],
+    cfg: dict[str, Any], semillas: list[int], accion: Callable[[Any, np.ndarray], int],
     reinicia: Callable[[], None] | None = None,
 ) -> dict[str, np.ndarray]:
     """Un episodio por semilla. Devuelve una serie por metrica, alineada con `semillas`."""
@@ -83,32 +102,51 @@ def juega(
         resultados["progreso"].append(info["progreso"])
         resultados["meta"].append(float(info["meta"]))
         resultados["recompensa"].append(total)
+    if hasattr(env, "close"):
+        env.close()
     return {k: np.asarray(v, dtype=float) for k, v in resultados.items()}
 
 
 def referencias(cfg: dict[str, Any], semillas: list[int], semilla_azar: int) -> dict[str, dict[str, np.ndarray]]:
+    """Las lineas contra las que se lee cualquier modelo.
+
+    Los indices de accion no son los mismos en los dos entornos: en el propio la 2 es
+    "derecha + carrera" y la 3 "derecha + salto"; en el NES, SIMPLE_MOVEMENT pone la 1 en
+    "derecha", la 2 en "derecha + A" y la 4 en "derecha + A + B". La heuristica escrita a
+    mano solo existe en el entorno propio, porque lee su mapa de casillas directamente.
+    """
     generador = np.random.default_rng(semilla_azar)
-    return {
+    derecha, salto = (1, 4) if es_nes(cfg) else (2, 3)
+    lineas = {
         "azar": juega(cfg, semillas, lambda env, obs: int(generador.integers(N_ACTIONS))),
-        "siempre_dcha": juega(cfg, semillas, lambda env, obs: 2),
-        "salto_cte": juega(cfg, semillas, lambda env, obs: 3),
-        "heuristica": juega(cfg, semillas, lambda env, obs: scripted_action(env)),
+        "siempre_dcha": juega(cfg, semillas, lambda env, obs: derecha),
+        "salto_cte": juega(cfg, semillas, lambda env, obs: salto),
     }
+    if not es_nes(cfg):
+        lineas["heuristica"] = juega(cfg, semillas, lambda env, obs: scripted_action(env))
+    return lineas
 
 
 def juega_politica(
-    cfg: dict[str, Any], semillas: list[int], politica: nn.Module, device: torch.device
+    cfg: dict[str, Any], semillas: list[int], politica: nn.Module, device: torch.device,
+    muestrea: bool = False,
 ) -> dict[str, np.ndarray]:
-    """Politica codiciosa, con el estado oculto reiniciado en cada nivel."""
+    """Estado oculto reiniciado en cada nivel. `muestrea` sortea en vez de coger el maximo.
+
+    Las dos se informan porque no dicen lo mismo: la codiciosa se queda pegada a una
+    accion constante y la muestreada conserva la exploracion que la red aprendio.
+    """
     estado = {"h": politica.initial_state(1, device)}
 
     def reinicia() -> None:
         estado["h"] = politica.initial_state(1, device)
 
     @torch.no_grad()
-    def accion(env: PlatformerEnv, observacion: np.ndarray) -> int:
+    def accion(env: Any, observacion: np.ndarray) -> int:
         tensor = torch.as_tensor(observacion, dtype=torch.float32, device=device)[None]
         logits, _, estado["h"] = politica(tensor, estado["h"])
+        if muestrea:
+            return int(torch.distributions.Categorical(logits=logits).sample().item())
         return int(logits.argmax(dim=1).item())
 
     return juega(cfg, semillas, accion, reinicia)
@@ -138,6 +176,8 @@ def main() -> int:
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--levels", type=int, default=None, help="niveles de test")
     parser.add_argument("--device", default=None)
+    parser.add_argument("--muestrea", action="store_true",
+                        help="politica muestreada en vez de codiciosa")
     args = parser.parse_args()
 
     cfg = yaml.safe_load(args.config.read_text())
@@ -145,7 +185,8 @@ def main() -> int:
     out_dir = Path(cfg["output_dir"])
     n_levels = args.levels or int(cfg.get("test_episodes", 256))
     semillas = niveles_de_test(cfg, n_levels)
-    print(f"dispositivo: {device}   niveles de test: {n_levels}")
+    print(f"dispositivo: {device}   niveles de test: {n_levels}"
+          f"   politica {'muestreada' if args.muestrea else 'codiciosa'}")
 
     series: dict[str, dict[str, np.ndarray]] = referencias(cfg, semillas, semilla_azar=0)
     wirings = load_wirings(cfg)
@@ -156,7 +197,7 @@ def main() -> int:
             if not ruta.exists():
                 continue
             politica = carga_politica(ruta, cfg, wirings, device)
-            por_semilla.append(juega_politica(cfg, semillas, politica, device))
+            por_semilla.append(juega_politica(cfg, semillas, politica, device, args.muestrea))
             print(f"  {name} s{seed}: progreso {por_semilla[-1]['progreso'].mean():.3f}")
         if not por_semilla:
             print(f"  {name}: sin checkpoints en {out_dir}")
