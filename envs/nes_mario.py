@@ -1,0 +1,277 @@
+"""Super Mario Bros de NES de verdad, con emulador (fase 6b).
+
+El diseno descartaba los emuladores de ROMs comerciales. Se hace igualmente por encargo
+explicito del usuario (21-09-2026). La ROM no se descarga de ningun sitio: viene dentro
+del paquete `gym-super-mario-bros`, que es el que usa la literatura de RL.
+
+**La observacion sigue siendo simbolica, no pixeles.** Se saca del mapa de casillas de la
+RAM del NES (0x0500-0x069F, dos pantallas de 13x16) y de las posiciones de los enemigos,
+y se entrega con exactamente la misma forma que `envs/platformer.py`: ventana de casillas
+en tres canales mas cinco escalares. Asi la politica del conectoma no cambia ni una linea
+y los dos entornos son intercambiables. El motivo es el del diseno: aprender desde imagen
+multiplica el coste por ordenes de magnitud y aqui no hay GPU.
+
+**Lo que se pierde respecto al entorno propio.** El diseno exige niveles generados
+aleatoriamente, y Super Mario Bros tiene 32 niveles fijos: la red puede memorizar la
+secuencia de saltos. La unica defensa honesta es repartir los niveles en conjuntos
+disjuntos (`STAGES`) y medir SIEMPRE en niveles que no se han entrenado. Un numero
+medido en el nivel de entrenamiento no dice nada y no debe publicarse.
+
+Direcciones de RAM usadas (mapa estandar de SMB):
+    0x006D/0x0086  pagina y desplazamiento de la x del jugador
+    0x03B8         y del jugador en pantalla
+    0x001D         estado: 0 en el suelo, 1-3 en el aire o trepando
+    0x0500-0x069F  mapa de casillas de las dos pantallas en memoria
+    0x000F-0x0013  enemigo vivo;  0x006E-0x0072 / 0x0087-0x008B  su x;  0x00CF-0x00D3  su y
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+import numpy as np
+
+from envs.platformer import ObservationConfig
+
+# SIMPLE_MOVEMENT de gym-super-mario-bros son 7 acciones, las mismas que el entorno
+# propio: nada, derecha, derecha+A, derecha+B, derecha+A+B, A, izquierda.
+N_NES_ACTIONS = 7
+
+TILE_MAP = 0x0500
+SCREEN_TILES = 208           # 13 filas x 16 columnas por pantalla
+HUD_ROWS = 1                 # calibrado contra la RAM, no supuesto: con 1, la casilla
+                             # bajo los pies de Mario sale solida (84) y la suya, aire.
+                             # Con 2 el suelo aparecia dos filas por debajo de el.
+TILE = 16                    # pixeles por casilla
+
+# Reparto de niveles. Disjunto por construccion, como los rangos de semilla del entorno
+# propio. Se entrena en 1-1..7-1 y se mide en niveles que la red no ha visto nunca.
+STAGES: dict[str, tuple[tuple[int, int], ...]] = {
+    "train": ((1, 1), (1, 2), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1), (7, 1)),
+    "val": ((1, 3), (3, 3), (5, 3)),
+    "test": ((2, 3), (4, 3), (6, 3), (8, 1)),
+}
+
+
+@dataclass
+class NesConfig:
+    frame_skip: int = 4          # una accion del agente = 4 fotogramas de NES
+    max_steps: int = 2000        # pasos del agente, no fotogramas
+    random_noop: int = 20        # fotogramas de espera aleatorios al empezar
+    reward_scale: float = 0.1    # la recompensa del paquete llega a 15 por paso
+    death_penalty: float = 5.0
+    stuck_steps: int = 80        # pasos sin avanzar antes de cortar el episodio
+    stage: tuple[int, int] | None = None   # forzar un unico nivel (demo, no experimento)
+
+
+class NesMarioEnv:
+    """Misma API que `PlatformerEnv`: `reset(seed) -> obs` y `step(accion)`."""
+
+    def __init__(
+        self,
+        split: str = "train",
+        obs_cfg: ObservationConfig = ObservationConfig(),
+        cfg: NesConfig = NesConfig(),
+        render_mode: str | None = None,
+    ) -> None:
+        self.split = split
+        self.obs_cfg = obs_cfg
+        self.cfg = cfg
+        # Sin render_mode="human" desde la construccion, `render()` sale sin hacer nada y
+        # NUNCA se abre ventana. Entrenando va a None, que es lo que hay que usar.
+        self.render_mode = render_mode
+        # El YAML entrega listas, y el nivel se usa como clave de diccionario.
+        self.stages = (tuple(cfg.stage),) if cfg.stage is not None else STAGES[split]
+        self._envs: dict[tuple[int, int], Any] = {}
+        self.env: Any = None
+
+    @property
+    def n_features(self) -> int:
+        return self.obs_cfg.n_features
+
+    def _emulator(self, stage: tuple[int, int]) -> Any:
+        """Un emulador por nivel, reutilizado: construirlo cuesta ~0,3 s."""
+        if stage not in self._envs:
+            import gym_super_mario_bros
+            from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
+            from nes_py.wrappers import JoypadSpace
+
+            world, level = stage
+            raw = gym_super_mario_bros.make(
+                f"SuperMarioBros-{world}-{level}-v0", render_mode=self.render_mode
+            )
+            self._envs[stage] = JoypadSpace(raw, SIMPLE_MOVEMENT)
+        return self._envs[stage]
+
+    def reset(self, seed: int) -> np.ndarray:
+        """La semilla elige el nivel dentro de la particion y la espera inicial."""
+        rng = np.random.default_rng(seed)
+        self.stage = self.stages[int(rng.integers(len(self.stages)))]
+        self.env = self._emulator(self.stage)
+        self.env.reset()
+        # Arranque con ruido: sin esto, un nivel fijo se puede resolver con una secuencia
+        # memorizada de botones que ni siquiera mira la pantalla.
+        for _ in range(int(rng.integers(self.cfg.random_noop + 1))):
+            self.env.step(0)
+        self.steps = 0
+        self.max_x = 0
+        # Sin esto, un agente que se queda atascado contra una tuberia gasta los 600
+        # pasos del episodio sin aprender nada. Cortar pronto multiplica la experiencia
+        # util por paso de CPU, que es el recurso escaso aqui.
+        self.stuck = 0
+        self.info: dict[str, Any] = {"x_pos": 0, "flag_get": False, "life": 2}
+        # Los pixeles no entran en la observacion; se guardan solo para grabar video.
+        self.frame = np.zeros((240, 256, 3), dtype=np.uint8)
+        self._read_state()
+        return self._observe()
+
+    # -- lectura de la RAM ------------------------------------------------------
+
+    def _read_state(self) -> None:
+        ram = np.asarray(self.env.unwrapped.ram, dtype=np.int32)
+        self.ram = ram
+        self.x = int(ram[0x006D]) * 256 + int(ram[0x0086])
+        self.y = int(ram[0x03B8])
+        self.on_ground = int(ram[0x001D]) == 0
+        self.tiles = ram[TILE_MAP:TILE_MAP + 2 * SCREEN_TILES].reshape(2, 13, 16)
+        alive = ram[0x000F:0x0014] != 0
+        enemy_x = ram[0x006E:0x0073] * 256 + ram[0x0087:0x008C]
+        enemy_y = ram[0x00CF:0x00D4]
+        self.enemies = np.stack([enemy_x[alive], enemy_y[alive]], axis=1)
+
+    def _tile(self, x_pixel: int, y_pixel: int) -> int:
+        """Casilla del mundo en coordenadas de pixel. 0 es aire."""
+        row = (y_pixel - HUD_ROWS * TILE) // TILE
+        if not 0 <= row < 13:
+            return 0
+        page = (x_pixel // 256) % 2
+        column = (x_pixel % 256) // TILE
+        return int(self.tiles[page, row, column])
+
+    # -- API --------------------------------------------------------------------
+
+    def step(self, action: int) -> tuple[np.ndarray, float, bool, dict[str, Any]]:
+        recompensa = 0.0
+        terminado = False
+        for _ in range(self.cfg.frame_skip):
+            self.frame, r, terminal, truncado, info = self.env.step(int(action))
+            recompensa += float(r)
+            terminado = bool(terminal or truncado)
+            if terminado:
+                break
+        self.info = info
+        self._read_state()
+        self.steps += 1
+        if self.x > self.max_x:
+            self.max_x = self.x
+            self.stuck = 0
+        else:
+            self.stuck += 1
+
+        murio = bool(info.get("is_dead") or info.get("is_game_over") or terminado and not info.get("flag_get"))
+        meta = bool(info.get("flag_get"))
+        recompensa *= self.cfg.reward_scale
+        if murio:
+            recompensa -= self.cfg.death_penalty
+        atascado = self.stuck >= self.cfg.stuck_steps
+        done = bool(murio or meta or atascado or self.steps >= self.cfg.max_steps)
+
+        # El final del nivel esta en x ~3.180 en casi todos los niveles de SMB; se usa el
+        # maximo visto como escala para que "progreso" signifique lo mismo que en el
+        # entorno propio: fraccion de nivel recorrida.
+        progreso = min(self.max_x / 3180.0, 1.0) if not meta else 1.0
+        return self._observe(), recompensa, done, {
+            "progreso": float(progreso),
+            "meta": meta,
+            "muerte": murio,
+            "pasos": self.steps,
+            "pisados": 0,
+            "atascado": bool(atascado),
+            "nivel": f"{self.stage[0]}-{self.stage[1]}",
+        }
+
+    def _observe(self) -> np.ndarray:
+        cfg = self.obs_cfg
+        half_w, half_h = cfg.window_width // 2, cfg.window_height // 2
+        solid = np.zeros((cfg.window_height, cfg.window_width), dtype=np.float32)
+        void = np.zeros_like(solid)
+        enemies = np.zeros_like(solid)
+
+        for dr in range(-half_h, half_h + 1):
+            for dc in range(-half_w, half_w + 1):
+                x_pixel = self.x + dc * TILE
+                y_pixel = self.y + dr * TILE
+                fila, columna = dr + half_h, dc + half_w
+                if x_pixel < 0 or not HUD_ROWS * TILE <= y_pixel < 240:
+                    void[fila, columna] = 1.0
+                    continue
+                solid[fila, columna] = 1.0 if self._tile(x_pixel, y_pixel) else 0.0
+
+        for ex, ey in self.enemies:
+            dc = int(round((int(ex) - self.x) / TILE)) + half_w
+            dr = int(round((int(ey) - self.y) / TILE)) + half_h
+            if 0 <= dr < cfg.window_height and 0 <= dc < cfg.window_width:
+                enemies[dr, dc] = 1.0
+
+        scalars = np.array(
+            [
+                np.clip((self.x - self.max_x) / TILE, -1.0, 1.0),
+                np.clip((self.y - 176) / 64.0, -2.0, 2.0),
+                1.0 if self.on_ground else 0.0,
+                1.0 - min(self.max_x / 3180.0, 1.0),
+                1.0 - self.steps / self.cfg.max_steps,
+            ],
+            dtype=np.float32,
+        )
+        return np.concatenate([solid.ravel(), enemies.ravel(), void.ravel(), scalars])
+
+    def close(self) -> None:
+        for env in self._envs.values():
+            env.close()
+        self._envs.clear()
+
+
+class VectorNesMario:
+    """`n_envs` emuladores en paralelo con reinicio automatico, como VectorPlatformer."""
+
+    def __init__(
+        self,
+        n_envs: int,
+        split: str,
+        obs_cfg: ObservationConfig = ObservationConfig(),
+        cfg: NesConfig = NesConfig(),
+        seed_offset: int = 0,
+    ) -> None:
+        self.n_envs = n_envs
+        self.envs = [NesMarioEnv(split, obs_cfg, cfg) for _ in range(n_envs)]
+        self.counters = np.arange(n_envs, dtype=np.int64) + seed_offset
+
+    @property
+    def n_features(self) -> int:
+        return self.envs[0].n_features
+
+    def _next_seed(self, index: int) -> int:
+        seed = int(self.counters[index])
+        self.counters[index] += self.n_envs
+        return seed
+
+    def reset(self) -> np.ndarray:
+        return np.stack([env.reset(self._next_seed(i)) for i, env in enumerate(self.envs)])
+
+    def step(self, actions: np.ndarray):
+        observations, rewards, dones, infos = [], [], [], []
+        for i, env in enumerate(self.envs):
+            obs, reward, done, info = env.step(int(actions[i]))
+            if done:
+                obs = env.reset(self._next_seed(i))
+            observations.append(obs)
+            rewards.append(reward)
+            dones.append(done)
+            infos.append(info)
+        return (
+            np.stack(observations),
+            np.asarray(rewards, dtype=np.float32),
+            np.asarray(dones, dtype=bool),
+            infos,
+        )

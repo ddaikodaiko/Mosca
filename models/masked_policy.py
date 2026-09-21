@@ -54,6 +54,14 @@ class ConnectomePolicy(nn.Module):
         self.encoder = nn.Linear(n_features, n_sensory)
         self.actor = nn.Linear(n_motor, n_actions)
         self.critic = nn.Linear(n_motor, 1)
+        # Estadisticas de la observacion, medidas SOLO sobre niveles de entrenamiento y
+        # guardadas como buffers, asi que viajan en el checkpoint. En el NES no evitan
+        # saturacion al arrancar (medido: 0 % con y sin), pero centran la entrada y
+        # duplican la senal util, y es lo que pide el hallazgo de fluidos. La saturacion
+        # del 66 % medida en un modelo ya entrenado viene de que PPO agranda los pesos
+        # del codificador, y eso normalizar la entrada NO lo arregla.
+        self.register_buffer("feature_mean", torch.zeros(n_features))
+        self.register_buffer("feature_std", torch.ones(n_features))
         # Arranca casi uniforme: con logits grandes al principio, PPO colapsa a una
         # accion antes de que el nucleo haya aprendido nada.
         with torch.no_grad():
@@ -67,16 +75,33 @@ class ConnectomePolicy(nn.Module):
     def initial_state(self, batch: int, device: torch.device) -> Tensor:
         return torch.zeros(batch, self.core.n_neurons, device=device)
 
-    def forward(self, observation: Tensor, h: Tensor) -> tuple[Tensor, Tensor, Tensor]:
-        """Devuelve (logits, valor, h siguiente)."""
+    @torch.no_grad()
+    def fit_feature_statistics(self, observations: Tensor) -> None:
+        """Mide media y desviacion de la observacion. Se llama ANTES de entrenar."""
+        self.feature_mean.copy_(observations.mean(dim=0))
+        # Muchas casillas casi nunca se encienden: con su desviacion real, normalizar las
+        # amplificaria a ruido enorme. El suelo de 0,1 las deja donde estan.
+        self.feature_std.copy_(observations.std(dim=0).clamp_min(0.1))
+
+    def forward(
+        self, observation: Tensor, h: Tensor, record: bool = False
+    ) -> tuple[Tensor, Tensor, Tensor] | tuple[Tensor, Tensor, Tensor, list[Tensor]]:
+        """Devuelve (logits, valor, h siguiente), y con `record` la traza interna.
+
+        La traza son las `n_internal_steps` activaciones de dentro de un paso de juego.
+        La usa el visor; el entrenamiento nunca la pide, porque guardarla multiplicaria
+        la memoria del despliegue por el numero de pasos internos.
+        """
         drive = torch.zeros(
             observation.shape[0], self.core.n_neurons,
             device=observation.device, dtype=observation.dtype,
         )
-        drive = drive.index_copy(1, self.sensory, self.encoder(observation))
-        h, _ = self.core(drive, h)
+        normalised = (observation - self.feature_mean) / self.feature_std
+        drive = drive.index_copy(1, self.sensory, self.encoder(normalised))
+        h, trace = self.core(drive, h, record=record)
         readout = h.index_select(1, self.motor)
-        return self.actor(readout), self.critic(readout).squeeze(-1), h
+        logits, value = self.actor(readout), self.critic(readout).squeeze(-1)
+        return (logits, value, h, trace) if record else (logits, value, h)
 
 
 class MLPPolicy(nn.Module):
@@ -96,6 +121,8 @@ class MLPPolicy(nn.Module):
         self.actor = nn.Linear(hidden, n_actions)
         self.critic = nn.Linear(hidden, 1)
         self.hidden = hidden
+        self.register_buffer("feature_mean", torch.zeros(n_features))
+        self.register_buffer("feature_std", torch.ones(n_features))
         with torch.no_grad():
             self.actor.weight.mul_(policy_scale)
             nn.init.zeros_(self.actor.bias)
@@ -107,8 +134,13 @@ class MLPPolicy(nn.Module):
     def initial_state(self, batch: int, device: torch.device) -> Tensor:
         return torch.zeros(batch, self.hidden, device=device)
 
+    @torch.no_grad()
+    def fit_feature_statistics(self, observations: Tensor) -> None:
+        self.feature_mean.copy_(observations.mean(dim=0))
+        self.feature_std.copy_(observations.std(dim=0).clamp_min(0.1))
+
     def forward(self, observation: Tensor, h: Tensor) -> tuple[Tensor, Tensor, Tensor]:
-        features = self.body(observation)
+        features = self.body((observation - self.feature_mean) / self.feature_std)
         return self.actor(features), self.critic(features).squeeze(-1), h
 
 

@@ -54,7 +54,22 @@ class Rollout:
     returns: Tensor
 
 
-def build_environments(cfg: dict[str, Any], split: str, n_envs: int) -> VectorPlatformer:
+def build_environments(cfg: dict[str, Any], split: str, n_envs: int):
+    """El entorno lo elige la config: `env: propio` o `env: nes`.
+
+    Los dos entregan la MISMA observacion (302 numeros) y las mismas 7 acciones, asi que
+    la politica del conectoma es identica en los dos y los resultados son comparables
+    entre si en forma, aunque no en dificultad.
+    """
+    if cfg.get("env", "propio") == "nes":
+        from envs.nes_mario import NesConfig, VectorNesMario
+
+        return VectorNesMario(
+            n_envs=n_envs,
+            split=split,
+            obs_cfg=ObservationConfig(**cfg.get("observation", {})),
+            cfg=NesConfig(**cfg.get("nes", {})),
+        )
     return VectorPlatformer(
         n_envs=n_envs,
         split=split,
@@ -64,6 +79,28 @@ def build_environments(cfg: dict[str, Any], split: str, n_envs: int) -> VectorPl
         reward_cfg=RewardConfig(**cfg.get("reward", {})),
         max_steps=int(cfg.get("max_episode_steps", 1200)),
     )
+
+
+@torch.no_grad()
+def muestrea_observaciones(envs, state: dict[str, Any], n: int) -> Tensor:
+    """Observaciones de una politica al azar sobre los niveles de ENTRENAMIENTO.
+
+    Solo de entrenamiento: las estadisticas son parte del modelo y mirar validacion o
+    prueba para calcularlas seria filtrar. Se descarta el estado al terminar, para que el
+    entrenamiento arranque en el mismo punto que sin esto.
+    """
+    muestras = [state["obs"]]
+    vistas = state["obs"].shape[0]
+    while vistas < n:
+        acciones = np.random.randint(0, N_ACTIONS, size=envs.n_envs)
+        obs, _, _, _ = envs.step(acciones)
+        tensor = torch.as_tensor(obs, dtype=torch.float32, device=state["obs"].device)
+        muestras.append(tensor)
+        vistas += tensor.shape[0]
+    state["obs"] = torch.as_tensor(
+        envs.reset(), dtype=torch.float32, device=state["obs"].device
+    )
+    return torch.cat(muestras, dim=0)
 
 
 @torch.no_grad()
@@ -235,6 +272,9 @@ def train_one(
         "obs": torch.as_tensor(envs.reset(), dtype=torch.float32, device=device),
         "h": policy.initial_state(n_envs, device),
     }
+    if cfg.get("normalise_observations", True):
+        muestra = muestrea_observaciones(envs, state, int(cfg.get("normalise_samples", 2000)))
+        policy.fit_feature_statistics(muestra)
     total_iterations = int(ppo["iterations"])
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimiser, lambda it: 1.0 - it / max(total_iterations, 1)
@@ -243,6 +283,17 @@ def train_one(
     started = time.time()
     history: list[dict[str, Any]] = []
     best = {"progreso": float("-inf")}
+    out_dir = Path(cfg["output_dir"])
+    out_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint = out_dir / f"{name}_s{seed}.pt"
+
+    def guarda() -> None:
+        """Se guarda en cada evaluacion, no solo al final: un entrenamiento de horas
+        tiene que poder mirarse mientras corre, y cortarse sin perderlo todo."""
+        torch.save(
+            {"modelo": name, "semilla": seed, "config": cfg,
+             "state_dict": policy.state_dict()}, checkpoint,
+        )
     print(f"\n[{name} s{seed}] {policy.n_neurons} neuronas, {n_parameters:,} parametros")
     for iteration in range(total_iterations):
         batch, statistics = collect(
@@ -254,6 +305,7 @@ def train_one(
         entry = {"iteracion": iteration, **statistics, **losses}
         if (iteration + 1) % int(cfg.get("eval_every", 10)) == 0 or iteration == total_iterations - 1:
             entry["val"] = evaluate(policy, cfg, "val", int(cfg.get("eval_episodes", 16)), device)
+            guarda()
             if entry["val"]["progreso"] > best["progreso"]:
                 best = dict(entry["val"], iteracion=iteration)
             print(
@@ -265,12 +317,7 @@ def train_one(
             )
         history.append(entry)
 
-    out_dir = Path(cfg["output_dir"])
-    out_dir.mkdir(parents=True, exist_ok=True)
-    torch.save(
-        {"modelo": name, "semilla": seed, "config": cfg, "state_dict": policy.state_dict()},
-        out_dir / f"{name}_s{seed}.pt",
-    )
+    guarda()
     test = evaluate(policy, cfg, "test", int(cfg.get("test_episodes", 32)), device)
     return {
         "modelo": name,

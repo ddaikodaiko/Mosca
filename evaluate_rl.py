@@ -122,7 +122,14 @@ def carga_politica(
     politica = build_policy(
         checkpoint["modelo"], cfg, entorno.n_features, N_ACTIONS, int(checkpoint["semilla"]), wirings
     )
-    politica.load_state_dict(checkpoint["state_dict"])
+    faltan, sobran = politica.load_state_dict(checkpoint["state_dict"], strict=False)
+    # Los checkpoints anteriores a la normalizacion de la entrada no traen estos buffers;
+    # se quedan en media 0 y desviacion 1, que es exactamente como se entrenaron.
+    esperadas = {"feature_mean", "feature_std"}
+    if set(faltan) - esperadas or sobran:
+        raise RuntimeError(f"checkpoint incompatible: faltan {faltan}, sobran {sobran}")
+    if faltan:
+        print(f"  aviso: {ruta.name} es anterior a la normalizacion de entrada")
     return politica.to(device).eval()
 
 

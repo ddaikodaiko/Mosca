@@ -30,3 +30,8 @@ six==1.17.0
 sympy==1.14.0
 torch==2.14.0+cpu
 typing_extensions==4.16.0
+
+# Fase 6b: Super Mario Bros de NES con emulador (seccion 13 del diseno). La ROM viene
+# dentro de gym-super-mario-bros; no se descarga nada. Solo hace falta para envs/nes_mario.py.
+nes-py>=9.0.1
+gym-super-mario-bros>=9.1.0

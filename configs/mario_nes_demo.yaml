@@ -1,0 +1,55 @@
+# Fase 6b - DEMO, no experimento: un solo nivel (1-1) y un solo modelo, entrenado a
+# fondo para poder verlo jugar.
+#   python train_rl.py --config configs/mario_nes_demo.yaml --model mosca --seed 0
+#
+# ATENCION: entrenar y medir en el MISMO nivel es justo lo que el diseno prohibe, porque
+# la red puede memorizar la secuencia de botones. Esto sirve para grabar un video, NO
+# para comparar cableados. La comparacion va en configs/mario_nes.yaml, con niveles de
+# entrenamiento y de prueba disjuntos.
+device: auto
+env: nes
+wiring_dir: artifacts/conectoma_500_proto
+output_dir: artifacts/mario_nes_demo
+
+core:
+  n_internal_steps: 2
+  spectral_radius: 0.95
+  leak: 1.0
+
+encoder:
+  n_sensory: 56
+  n_motor: 56
+  n_shared: 15
+
+observation: {window_width: 11, window_height: 9}
+
+nes:
+  frame_skip: 4
+  max_steps: 800
+  random_noop: 20
+  reward_scale: 0.1
+  death_penalty: 5.0
+  stuck_steps: 80
+  stage: [1, 1]      # el nivel fijo de la demo
+
+ppo:
+  n_envs: 8
+  rollout_steps: 128
+  iterations: 600      # ~2,5 M fotogramas de NES
+  epochs: 3
+  n_minibatches: 4
+  lr: 3.0e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip: 0.2
+  value_coefficient: 0.5
+  entropy_coefficient: 0.01
+  grad_clip: 1.0
+
+eval_every: 10       # guarda checkpoint en cada evaluacion: se puede mirar mientras corre
+eval_envs: 4
+eval_episodes: 4
+test_episodes: 8
+
+models: [mosca]
+seeds: [0]

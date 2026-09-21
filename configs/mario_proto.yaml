@@ -34,7 +34,7 @@ level_seeds:
 ppo:
   n_envs: 8
   rollout_steps: 64
-  iterations: 40
+  iterations: 400     # con 40 no se mueve nada: la entropia baja de 1,95 a 1,85 y ya
   epochs: 3
   n_minibatches: 4
   lr: 3.0e-4
@@ -45,7 +45,7 @@ ppo:
   entropy_coefficient: 0.01
   grad_clip: 1.0
 
-eval_every: 10
+eval_every: 50
 eval_envs: 8
 eval_episodes: 8
 test_episodes: 16

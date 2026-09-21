@@ -1,0 +1,51 @@
+# Fase 6b - Super Mario Bros de NES con emulador, prototipo barato (CPU).
+#   python train_rl.py --config configs/mario_nes_proto.yaml --model mosca --seed 0
+# La ROM viene en el paquete gym-super-mario-bros; no se descarga nada.
+device: auto
+env: nes
+wiring_dir: artifacts/conectoma_500_proto
+output_dir: artifacts/mario_nes_proto
+
+core:
+  n_internal_steps: 2
+  spectral_radius: 0.95
+  leak: 1.0
+
+encoder:
+  n_sensory: 56
+  n_motor: 56
+  n_shared: 15
+
+observation: {window_width: 11, window_height: 9}
+
+nes:
+  frame_skip: 4        # una accion del agente = 4 fotogramas de NES
+  max_steps: 600       # pasos del agente
+  random_noop: 20      # espera aleatoria al empezar: sin esto se memoriza la secuencia
+  reward_scale: 0.1
+  death_penalty: 5.0
+
+# Los niveles los reparte envs/nes_mario.STAGES en conjuntos DISJUNTOS. SMB tiene 32
+# niveles fijos, asi que la unica defensa contra la memorizacion es medir en niveles que
+# la red no ha entrenado nunca.
+ppo:
+  n_envs: 8
+  rollout_steps: 64
+  iterations: 100
+  epochs: 3
+  n_minibatches: 4
+  lr: 3.0e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip: 0.2
+  value_coefficient: 0.5
+  entropy_coefficient: 0.01
+  grad_clip: 1.0
+
+eval_every: 25
+eval_envs: 4
+eval_episodes: 4
+test_episodes: 8
+
+models: [mosca, aleatorio, recableado, denso, sin_nucleo, mlp]
+seeds: [0]

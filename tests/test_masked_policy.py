@@ -136,6 +136,51 @@ def test_build_policy_da_los_seis_modelos_con_los_mismos_puertos() -> None:
         assert shared.size == n_shared, f"{name} comparte {shared.size} neuronas"
 
 
+def test_la_normalizacion_saca_a_las_sensoriales_de_la_saturacion() -> None:
+    """La normalizacion quita el sesgo y la escala de la ENTRADA, y nada mas.
+
+    Medido en el NES: al inicializar no satura nadie (|impulso| medio 0,14 sin normalizar
+    y 0,30 con), asi que aqui no arregla ningun problema de arranque; se deja porque es
+    lo que pide el hallazgo de fluidos y porque duplica la senal util. El 66 % de
+    sensoriales saturadas que se midio en el modelo entrenado viene del CRECIMIENTO de
+    los pesos durante PPO, no de la escala de la entrada: eso no lo arregla normalizar.
+    """
+    torch.manual_seed(0)
+    policy = small_policy()
+    # Observacion con la forma de la real: casillas encendidas o apagadas, con media
+    # lejos de cero, que es lo que descoloca al codificador.
+    observaciones = (torch.rand(512, N_FEATURES) < 0.35).float() * 3.0 + 2.0
+
+    def fraccion_saturada() -> float:
+        with torch.no_grad():
+            normalizada = (observaciones - policy.feature_mean) / policy.feature_std
+            return float((policy.encoder(normalizada).abs() > 2.5).float().mean())
+
+    antes = fraccion_saturada()
+    policy.fit_feature_statistics(observaciones)
+    despues = fraccion_saturada()
+    assert antes > 0.2, f"el caso de prueba no satura ({antes:.0%})"
+    assert despues < 0.05, f"sigue saturando: {antes:.0%} -> {despues:.0%}"
+
+    # Lo que la normalizacion NO arregla: si el entrenamiento hace crecer los pesos, se
+    # vuelve a saturar. Queda escrito para que nadie lea esto como una garantia.
+    with torch.no_grad():
+        policy.encoder.weight.mul_(8.0)
+    assert fraccion_saturada() > 0.3
+
+
+def test_las_estadisticas_de_entrada_viajan_en_el_checkpoint() -> None:
+    policy = small_policy()
+    policy.fit_feature_statistics(torch.randn(64, N_FEATURES) * 3.0 + 1.0)
+    estado = policy.state_dict()
+    assert "feature_mean" in estado and "feature_std" in estado
+    copia = small_policy()
+    copia.load_state_dict(estado)
+    assert torch.equal(copia.feature_mean, policy.feature_mean)
+    assert torch.equal(copia.feature_std, policy.feature_std)
+    assert float(policy.feature_std.min()) >= 0.1, "el suelo de la desviacion no se aplica"
+
+
 def test_sin_nucleo_no_tiene_sinapsis_pero_si_puertos() -> None:
     cfg = yaml.safe_load(Path("configs/mario_proto.yaml").read_text())
     directory = Path(cfg["wiring_dir"])
