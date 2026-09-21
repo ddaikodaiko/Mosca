@@ -1,0 +1,54 @@
+# Fase 6 - prototipo BARATO para esta maquina (CPU). Sirve para comprobar que el bucle
+# aprende algo, no para responder a la pregunta: 500 neuronas y niveles cortos.
+#   python train_rl.py --config configs/mario_proto.yaml --model mosca --seed 0
+device: auto
+wiring_dir: artifacts/conectoma_500_proto
+output_dir: artifacts/mario_proto
+
+core:
+  n_internal_steps: 2
+  spectral_radius: 0.95
+  leak: 1.0
+
+encoder:
+  n_sensory: 56
+  n_motor: 56
+  n_shared: 15     # 56 + 56 - 97, el minimo que admite el denso de este prototipo
+
+level:
+  width: 60
+  height: 12
+  gap_probability: 0.20
+  pipe_probability: 0.08
+  enemy_probability: 0.04
+
+observation: {window_width: 11, window_height: 9}
+reward: {progress: 1.0, step_cost: 0.02, death: 5.0, goal: 10.0, stomp: 1.0}
+max_episode_steps: 400
+
+level_seeds:
+  train: [0, 1000000]
+  val: [2000000, 2010000]
+  test: [3000000, 3010000]
+
+ppo:
+  n_envs: 8
+  rollout_steps: 64
+  iterations: 40
+  epochs: 3
+  n_minibatches: 4
+  lr: 3.0e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip: 0.2
+  value_coefficient: 0.5
+  entropy_coefficient: 0.01
+  grad_clip: 1.0
+
+eval_every: 10
+eval_envs: 8
+eval_episodes: 8
+test_episodes: 16
+
+models: [mosca, aleatorio, recableado, denso, sin_nucleo, mlp]
+seeds: [0]

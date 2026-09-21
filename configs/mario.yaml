@@ -1,0 +1,64 @@
+# Fase 6 - configuracion REAL, para el PC con GPU. 6 modelos x 3 semillas.
+#   python train_rl.py --config configs/mario.yaml
+# Las semillas son de ENTRENAMIENTO; el subgrafo del conectoma es uno solo y lo comparten
+# los seis modelos, igual que en la fase 4.
+#
+# COSTE MEDIDO en esta maquina (CPU, N=4.000, n_envs 32, rollout 128): 11 s de
+# recoleccion + 40 s de actualizacion = 51 s por iteracion. Con 800 iteraciones son
+# 11 h por modelo y semilla, o sea 8 dias los 18 entrenamientos: en CPU no cabe. En GPU
+# hay que medirlo antes de lanzar los 18 y ajustar `iterations` a lo que de el tiempo.
+# La actualizacion se lleva el 80 %: si hay que recortar, se recorta ahi (epochs o
+# n_minibatches), no en la recoleccion.
+device: auto
+wiring_dir: artifacts/conectoma_4000
+output_dir: artifacts/mario
+
+core:
+  n_internal_steps: 4
+  spectral_radius: 0.95
+  leak: 1.0
+
+encoder:
+  n_sensory: 256
+  n_motor: 256
+  n_shared: 92     # minimo que admite el control denso: 256 + 256 - 420
+
+level:
+  width: 160
+  height: 14
+  gap_probability: 0.25
+  step_probability: 0.30
+  pipe_probability: 0.12
+  enemy_probability: 0.05
+  max_gap: 3
+
+observation: {window_width: 11, window_height: 9}
+reward: {progress: 1.0, step_cost: 0.02, death: 5.0, goal: 10.0, stomp: 1.0}
+max_episode_steps: 1200
+
+level_seeds:
+  train: [0, 1000000]
+  val: [2000000, 2010000]
+  test: [3000000, 3010000]
+
+ppo:
+  n_envs: 32
+  rollout_steps: 128
+  iterations: 800         # 3,3 M pasos de entorno por modelo y semilla
+  epochs: 3
+  n_minibatches: 8
+  lr: 3.0e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip: 0.2
+  value_coefficient: 0.5
+  entropy_coefficient: 0.01
+  grad_clip: 1.0
+
+eval_every: 50
+eval_envs: 16
+eval_episodes: 32
+test_episodes: 256
+
+models: [mosca, aleatorio, recableado, denso, sin_nucleo, mlp]
+seeds: [0, 1, 2]
