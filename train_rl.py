@@ -222,9 +222,16 @@ def ppo_update(
 
 @torch.no_grad()
 def evaluate(
-    policy: nn.Module, cfg: dict[str, Any], split: str, n_episodes: int, device: torch.device
+    policy: nn.Module, cfg: dict[str, Any], split: str, n_episodes: int, device: torch.device,
+    sample: bool = False,
 ) -> dict[str, float]:
-    """Politica codiciosa sobre niveles de `split`. Semillas disjuntas de las de train."""
+    """Niveles de `split`, con semillas disjuntas de las de entrenamiento.
+
+    `sample=False` coge el maximo (lo que se publica) y `sample=True` muestrea. Se miden
+    las dos porque la codiciosa se atasca: en el prototipo daba el mismo valor exacto en
+    todas las evaluaciones mientras la muestreada si se movia, y publicar solo una de las
+    dos daria una idea equivocada de lo que ha aprendido la red.
+    """
     n_envs = min(int(cfg.get("eval_envs", 8)), n_episodes)
     envs = build_environments(cfg, split, n_envs)
     obs = torch.as_tensor(envs.reset(), dtype=torch.float32, device=device)
@@ -235,7 +242,8 @@ def evaluate(
         if len(finished) >= n_episodes:
             break
         logits, _, h = policy(obs, h)
-        action = logits.argmax(dim=1)
+        action = (torch.distributions.Categorical(logits=logits).sample() if sample
+                  else logits.argmax(dim=1))
         next_obs, _, done, infos = envs.step(action.cpu().numpy())
         for i, done_i in enumerate(done):
             if done_i:
@@ -304,7 +312,9 @@ def train_one(
         scheduler.step()
         entry = {"iteracion": iteration, **statistics, **losses}
         if (iteration + 1) % int(cfg.get("eval_every", 10)) == 0 or iteration == total_iterations - 1:
-            entry["val"] = evaluate(policy, cfg, "val", int(cfg.get("eval_episodes", 16)), device)
+            episodios = int(cfg.get("eval_episodes", 16))
+            entry["val"] = evaluate(policy, cfg, "val", episodios, device)
+            entry["val_muestreada"] = evaluate(policy, cfg, "val", episodios, device, sample=True)
             guarda()
             if entry["val"]["progreso"] > best["progreso"]:
                 best = dict(entry["val"], iteracion=iteration)
@@ -312,13 +322,16 @@ def train_one(
                 f"  iter {iteration + 1:4d}/{total_iterations}"
                 f"  train progreso {statistics['progreso_medio']:.3f}"
                 f"  val progreso {entry['val']['progreso']:.3f}"
+                f" (muestreada {entry['val_muestreada']['progreso']:.3f})"
                 f"  meta {entry['val']['tasa_meta']:.2f}"
                 f"  H {losses['entropia']:.3f}"
             )
         history.append(entry)
 
     guarda()
-    test = evaluate(policy, cfg, "test", int(cfg.get("test_episodes", 32)), device)
+    episodios_test = int(cfg.get("test_episodes", 32))
+    test = evaluate(policy, cfg, "test", episodios_test, device)
+    test_muestreada = evaluate(policy, cfg, "test", episodios_test, device, sample=True)
     return {
         "modelo": name,
         "semilla": seed,
@@ -327,6 +340,7 @@ def train_one(
         "segundos": time.time() - started,
         "mejor_val": best,
         "test": test,
+        "test_muestreada": test_muestreada,
         "historia": history,
     }
 
