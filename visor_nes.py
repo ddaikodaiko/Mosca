@@ -339,14 +339,40 @@ def main() -> int:
 
     plt.show(block=False)
     figura.canvas.draw()
-    fondo_figura = figura.canvas.copy_from_bbox(figura.bbox)
+    fondo = {"region": figura.canvas.copy_from_bbox(figura.bbox), "valido": True}
+    cerrada = {"si": False}
+
+    def al_cerrar(_evento) -> None:
+        cerrada["si"] = True
+
+    def al_redimensionar(_evento) -> None:
+        # Al cambiar de tamano la ventana, el fondo guardado ya no encaja y el blit
+        # pintaria basura: se marca para recapturarlo en el cuadro siguiente.
+        fondo["valido"] = False
+
+    figura.canvas.mpl_connect("close_event", al_cerrar)
+    figura.canvas.mpl_connect("resize_event", al_redimensionar)
 
     def pinta() -> None:
-        figura.canvas.restore_region(fondo_figura)
+        lienzo = figura.canvas
+        # Al cerrar la ventana, matplotlib deja un lienzo base sin blitting. Antes eso
+        # petaba con AttributeError en mitad de la partida.
+        if cerrada["si"] or not hasattr(lienzo, "restore_region"):
+            cerrada["si"] = True
+            return
+        if not fondo["valido"]:
+            for artista in animados:
+                artista.set_animated(False)
+            lienzo.draw()
+            fondo["region"] = lienzo.copy_from_bbox(figura.bbox)
+            for artista in animados:
+                artista.set_animated(True)
+            fondo["valido"] = True
+        lienzo.restore_region(fondo["region"])
         for artista in animados:
             artista.axes.draw_artist(artista)
-        figura.canvas.blit(figura.bbox)
-        figura.canvas.flush_events()
+        lienzo.blit(figura.bbox)
+        lienzo.flush_events()
 
     partida = 0
     cuadros_pintados = 0
@@ -358,7 +384,7 @@ def main() -> int:
             estado["h"] = modelo.initial_state(1, device)
             done = False
             reloj = time.monotonic()
-            while not done:
+            while not done and not cerrada["si"]:
                 done, info = paso()
                 pinta()
                 cuadros_pintados += 1
@@ -373,12 +399,14 @@ def main() -> int:
             print(f"  partida {partida}: {'META' if info['meta'] else 'fin'}"
                   f"   x {env.x}   progreso {info['progreso']:.1%}"
                   f"   {cuadros_pintados / transcurrido:.1f} cuadros/s")
-            if not args.loop:
+            if not args.loop or cerrada["si"]:
                 break
     except KeyboardInterrupt:
         print("\nparado")
     finally:
         env.close()
+    if cerrada["si"]:
+        print("ventana cerrada")
     return 0
 
 

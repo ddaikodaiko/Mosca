@@ -178,10 +178,21 @@ def main() -> int:
     parser.add_argument("--device", default=None)
     parser.add_argument("--muestrea", action="store_true",
                         help="politica muestreada en vez de codiciosa")
+    parser.add_argument("--repeticiones", type=int, default=1,
+                        help="partidas por nivel; con politica muestreada hace falta mas de una")
+    parser.add_argument("--semilla", type=int, default=0,
+                        help="semilla del muestreo, para que la evaluacion sea reproducible")
     args = parser.parse_args()
 
     cfg = yaml.safe_load(args.config.read_text())
     device = resolve_device(args.device or cfg.get("device", "auto"))
+    # Regla 2 del repo: toda ejecucion registra su semilla. Sin fijarla, dos evaluaciones
+    # muestreadas del MISMO checkpoint daban 0,818 y 0,701 de progreso.
+    torch.manual_seed(args.semilla)
+    np.random.seed(args.semilla)
+    if args.muestrea and args.repeticiones == 1:
+        print("aviso: politica muestreada con una sola partida por nivel; el ruido del"
+              " muestreo es del tamano de las diferencias entre modelos")
     out_dir = Path(cfg["output_dir"])
     n_levels = args.levels or int(cfg.get("test_episodes", 256))
     semillas = niveles_de_test(cfg, n_levels)
@@ -197,7 +208,15 @@ def main() -> int:
             if not ruta.exists():
                 continue
             politica = carga_politica(ruta, cfg, wirings, device)
-            por_semilla.append(juega_politica(cfg, semillas, politica, device, args.muestrea))
+            # Varias partidas por nivel y media: la politica muestreada es estocastica y
+            # con una sola partida el ruido tapa cualquier diferencia entre cableados.
+            partidas = [
+                juega_politica(cfg, semillas, politica, device, args.muestrea)
+                for _ in range(max(1, args.repeticiones))
+            ]
+            por_semilla.append({
+                metrica: np.mean([p[metrica] for p in partidas], axis=0) for metrica in METRICAS
+            })
             print(f"  {name} s{seed}: progreso {por_semilla[-1]['progreso'].mean():.3f}")
         if not por_semilla:
             print(f"  {name}: sin checkpoints en {out_dir}")
@@ -221,8 +240,12 @@ def main() -> int:
 
     permutaciones = int(cfg.get("permutations", 10000))
     contrastes: dict[str, Any] = {}
+    # Contra "azar" tambien: un modelo puede ganarle a la politica degenerada y aun asi
+    # no distinguirse de apretar botones al azar, que es lo que pasa en el NES a 190
+    # iteraciones. Sin este contraste, el primer resultado se lee como si fuera bueno.
     for a, b in (("mosca", "aleatorio"), ("mosca", "recableado"), ("mosca", "salto_cte"),
-                 ("mosca", "sin_nucleo"), ("mosca", "mlp"), ("mosca", "denso")):
+                 ("mosca", "azar"), ("mosca", "sin_nucleo"), ("mosca", "mlp"),
+                 ("mosca", "denso")):
         if a in series and b in series:
             contrastes[f"{a}_vs_{b}"] = {
                 metrica: prueba_de_permutacion(
@@ -241,7 +264,9 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     destino = out_dir / "rl_evaluacion.json"
     destino.write_text(json.dumps(
-        {"config": cfg, "n_niveles": n_levels, "resumen": resumen, "contrastes": contrastes},
+        {"config": cfg, "n_niveles": n_levels, "repeticiones": args.repeticiones,
+         "muestreada": bool(args.muestrea), "semilla": args.semilla,
+         "resumen": resumen, "contrastes": contrastes},
         indent=2, ensure_ascii=False,
     ))
     print(f"\ninforme en {destino}")
