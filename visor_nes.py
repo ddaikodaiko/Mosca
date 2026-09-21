@@ -45,89 +45,8 @@ from envs.platformer import N_ACTIONS, ObservationConfig
 from visor import ANNOTATIONS, brain_positions
 
 ACCIONES = ("nada", "derecha", "dcha+A", "dcha+B", "dcha+A+B", "A", "izquierda")
-# Direccion horizontal e intencion de salto de cada accion, para inclinar la mosca.
-INCLINACION = ((0, 0), (1, 0), (1, 1), (1, 0), (1, 1), (0, 1), (-1, 0))
 FONDO = "#0b0f1a"
 TEXTO = "#e6edf3"
-
-
-class MoscaAnimada:
-    """Una mosca dibujada al lado del juego, atada a lo que hace el nucleo.
-
-    No es adorno suelto: **la frecuencia del aleteo es la actividad media de las neuronas
-    motoras** y la inclinacion del cuerpo es la accion elegida. Si las motoras se apagan,
-    la mosca deja de aletear; si se saturan, aletea a tope. Sirve de diagnostico de un
-    vistazo, que es justo lo que no se ve en una rejilla de 500 puntos.
-
-    El dibujo si es una licencia: es una mosca esquematica, no la anatomia de Drosophila.
-    Lo anatomico es el panel del cerebro, que usa coordenadas reales.
-    """
-
-    def __init__(self, eje) -> None:
-        from matplotlib.patches import Circle, Ellipse
-
-        # Holgura suficiente para que las alas abiertas y las patas no se corten.
-        eje.set_xlim(-1.9, 1.9)
-        eje.set_ylim(-1.25, 1.25)
-        eje.set_aspect("equal")
-        self.eje = eje
-        self.fase = 0.0
-
-        self.alas = [
-            Ellipse((0.0, 0.30), 1.05, 0.34, angle=20, facecolor="#9fd4ff",
-                    alpha=0.55, edgecolor="#d8ecff", linewidth=0.6, zorder=2),
-            Ellipse((0.0, 0.30), 1.05, 0.34, angle=-20, facecolor="#9fd4ff",
-                    alpha=0.55, edgecolor="#d8ecff", linewidth=0.6, zorder=2),
-        ]
-        self.patas = [
-            eje.plot([], [], color="#2f2313", linewidth=1.6, solid_capstyle="round", zorder=7)[0]
-            for _ in range(6)
-        ]
-        self.abdomen = Ellipse((-0.34, 0.0), 0.95, 0.52, facecolor="#4a3a1e",
-                               edgecolor="#241a0c", linewidth=1.0, zorder=3)
-        self.torax = Ellipse((0.28, 0.02), 0.62, 0.50, facecolor="#5d4a26",
-                             edgecolor="#241a0c", linewidth=1.0, zorder=4)
-        self.cabeza = Circle((0.72, 0.04), 0.24, facecolor="#6b5630",
-                             edgecolor="#241a0c", linewidth=1.0, zorder=5)
-        self.ojos = [
-            Ellipse((0.80, 0.14), 0.30, 0.26, angle=-15, facecolor="#d7504b",
-                    edgecolor="#7d2420", linewidth=0.8, zorder=6),
-            Ellipse((0.80, -0.08), 0.30, 0.26, angle=15, facecolor="#b8403c",
-                    edgecolor="#7d2420", linewidth=0.8, zorder=6),
-        ]
-        for pieza in (*self.alas, self.abdomen, self.torax, self.cabeza, *self.ojos):
-            eje.add_patch(pieza)
-        self.piezas = [*self.alas, self.abdomen, self.torax, self.cabeza, *self.ojos]
-        self.centros = [pieza.center for pieza in self.piezas]
-
-    def actualiza(self, actividad_motora: float, accion: int) -> None:
-        from matplotlib.transforms import Affine2D
-
-        # Aleteo: entre 0,15 y 1,1 radianes por paso segun cuanto disparen las motoras.
-        self.fase += 0.9 + 3.2 * float(np.clip(actividad_motora, 0.0, 1.0))
-        apertura = 26.0 * np.sin(self.fase) * (0.25 + 0.75 * float(np.clip(actividad_motora, 0, 1)))
-        self.alas[0].angle = 20 + apertura
-        self.alas[1].angle = -20 - apertura
-
-        direccion, salto = INCLINACION[accion]
-        giro = -9.0 * direccion
-        altura = 0.16 if salto else 0.0
-        transformacion = (
-            Affine2D().rotate_deg_around(0.0, 0.0, giro).translate(0.0, altura)
-            + self.eje.transData
-        )
-        for pieza in self.piezas:
-            pieza.set_transform(transformacion)
-
-        largo = 0.40
-        for i, pata in enumerate(self.patas):
-            base_x = -0.10 + 0.30 * (i % 3)
-            lado = 1 if i < 3 else -1
-            balanceo = 0.10 * np.sin(self.fase * 0.5 + i)
-            puntos = np.array([[base_x, 0.0], [base_x - 0.12 + balanceo, lado * largo]])
-            puntos = puntos @ np.array([[np.cos(np.deg2rad(giro)), np.sin(np.deg2rad(giro))],
-                                        [-np.sin(np.deg2rad(giro)), np.cos(np.deg2rad(giro))]])
-            pata.set_data(puntos[:, 0], puntos[:, 1] + altura)
 
 
 def rejilla(n: int) -> tuple[int, int]:
@@ -163,6 +82,11 @@ def main() -> int:
                         help="3d gira el cerebro; el resto son planos fijos")
     parser.add_argument("--giro", type=float, default=1.1,
                         help="grados por cuadro que gira la vista 3d")
+    parser.add_argument("--puntos", type=int, default=12000,
+                        help="neuronas de silueta que se dibujan (menos = mas fluido)")
+    parser.add_argument("--ancho", type=float, default=11.0, help="ancho de la ventana en pulgadas")
+    parser.add_argument("--dpi", type=int, default=90,
+                        help="puntos por pulgada; el coste de pintar va con los pixeles")
     args = parser.parse_args()
 
     import matplotlib
@@ -250,36 +174,46 @@ def main() -> int:
           f" ({'rejilla %dx%d' % (filas, columnas) if args.rejilla else 'anatomia FlyWire v783'}),"
           f" {sensorial.size} sensoriales, {motora.size} motoras")
 
-    figura = plt.figure(figsize=(12, 5.4), facecolor=FONDO)
+    figura = plt.figure(figsize=(args.ancho, args.ancho * 0.45), dpi=args.dpi, facecolor=FONDO)
     rejas = figura.add_gridspec(3, 2, width_ratios=[1, 1.25], height_ratios=[6, 1, 1],
                                 hspace=0.25, wspace=0.08)
     eje_juego = figura.add_subplot(rejas[:, 0])
-    # La mosca va encima del cielo del juego, que esta siempre vacio: en una franja
-    # propia salia aplastada, porque el dibujo necesita aspecto 1:1.
-    # Zona de cielo despejada: ni tapa el marcador de arriba ni el suelo de abajo.
-    eje_mosca = eje_juego.inset_axes([0.60, 0.44, 0.38, 0.32])
     eje_cerebro = figura.add_subplot(rejas[0, 1])
     eje_puertos = figura.add_subplot(rejas[1, 1])
     eje_botones = figura.add_subplot(rejas[2, 1])
-    for eje in (eje_juego, eje_mosca, eje_cerebro, eje_puertos, eje_botones):
+    for eje in (eje_juego, eje_cerebro, eje_puertos, eje_botones):
         eje.set_facecolor(FONDO)
         eje.set_xticks([]); eje.set_yticks([])
         for lado in eje.spines.values():
             lado.set_color("#26304a")
 
     env.reset(args.seed)
-    imagen_juego = eje_juego.imshow(env.frame)
+    # nearest, no el suavizado por defecto: es 6 ms mas barato por cuadro y ademas es lo
+    # correcto para pixel art, que con antialiasing sale emborronado.
+    imagen_juego = eje_juego.imshow(env.frame, interpolation="nearest")
     gira3d = None
     if anatomia is not None and args.vista == "3d":
         fondo3d, activas3d = anatomia
-        # Una de cada seis de las 138.625: la silueta se sigue leyendo y la rotacion va
-        # fluida. Rotar y proyectar a mano es mucho mas rapido que mplot3d, y ademas deja
-        # pintar la profundidad, que es lo que hace que se vea volumen y no una mancha.
-        fondo3d = fondo3d[::4]
-        nube_fondo = eje_cerebro.scatter(
-            fondo3d[:, 0], -fondo3d[:, 1], s=0.8, c=fondo3d[:, 2], cmap="bone",
-            vmin=-1.6, vmax=1.9, alpha=0.5, linewidths=0, rasterized=True,
-        )
+        # La silueta es lo unico caro del visor: son decenas de miles de puntos que hay
+        # que reproyectar y repintar en cada cuadro. Se muestrea a `--puntos` (12.000 por
+        # defecto) repartidos por todo el cerebro, no los primeros: el orden del fichero
+        # agrupa por region y cogerlos seguidos dejaria medio cerebro sin silueta.
+        if fondo3d.shape[0] > args.puntos:
+            paso = fondo3d.shape[0] / args.puntos
+            fondo3d = fondo3d[(_np.arange(args.puntos) * paso).astype(int)]
+        # La silueta va en tres Line2D por banda de profundidad, no en un scatter.
+        # Medido: `scatter` con 12.000 puntos cuesta 170 ms por cuadro, porque reconstruye
+        # una ruta por punto; tres lineas con marcador cuestan 10 ms y se pierde solo el
+        # degradado continuo de profundidad, que con tres tonos se sigue leyendo.
+        capas_fondo = [
+            eje_cerebro.plot([], [], linestyle="none", marker=".", markersize=tamano,
+                             color=color, alpha=alfa, zorder=1)[0]
+            for tamano, color, alfa in (
+                (1.3, "#93a9d6", 0.55),   # delante
+                (1.0, "#5d6f9c", 0.45),
+                (0.8, "#3b4a70", 0.35),   # detras
+            )
+        ]
         nube = eje_cerebro.scatter(
             activas3d[:, 0], -activas3d[:, 1], s=16.0, c=np.zeros(activas3d.shape[0]),
             cmap="inferno", vmin=0.0, vmax=0.8, linewidths=0, zorder=3,
@@ -294,20 +228,24 @@ def main() -> int:
         imagen_cerebro = None
 
         estado_giro = {"angulo": 0.0}
+        bandas_profundidad = np.percentile(fondo3d[:, 2], [33.0, 66.0])
 
         def gira3d() -> None:
             """Gira alrededor del eje dorsoventral, que es el giro de toda la vida."""
             estado_giro["angulo"] += np.deg2rad(args.giro)
             coseno, seno = np.cos(estado_giro["angulo"]), np.sin(estado_giro["angulo"])
-            for nube_i, puntos in ((nube_fondo, fondo3d), (nube, activas3d)):
-                x = puntos[:, 0] * coseno + puntos[:, 2] * seno
-                z = -puntos[:, 0] * seno + puntos[:, 2] * coseno
-                nube_i.set_offsets(np.c_[x, -puntos[:, 1]])
-                if nube_i is nube_fondo:
-                    nube_i.set_array(z)          # profundidad: lo de detras, mas apagado
-                else:
-                    # Las activas cambian de tamano con la profundidad para dar volumen.
-                    nube_i.set_sizes(7.0 + 11.0 * np.clip((z + 1.0) / 2.0, 0.0, 1.0))
+            x = fondo3d[:, 0] * coseno + fondo3d[:, 2] * seno
+            z = -fondo3d[:, 0] * seno + fondo3d[:, 2] * coseno
+            banda = np.digitize(z, bandas_profundidad)
+            for i, capa in enumerate(capas_fondo):
+                dentro = banda == i
+                capa.set_data(x[dentro], -fondo3d[dentro, 1])
+
+            x = activas3d[:, 0] * coseno + activas3d[:, 2] * seno
+            z = -activas3d[:, 0] * seno + activas3d[:, 2] * coseno
+            nube.set_offsets(np.c_[x, -activas3d[:, 1]])
+            # Las activas cambian de tamano con la profundidad, que es lo que da volumen.
+            nube.set_sizes(7.0 + 11.0 * np.clip((z + 1.0) / 2.0, 0.0, 1.0))
     elif anatomia is not None:
         fondo, activas = anatomia
         eje_cerebro.scatter(fondo[::3, 0], -fondo[::3, 1], s=0.5, c="#33415f",
@@ -325,10 +263,6 @@ def main() -> int:
     puertos = np.zeros((2, max(sensorial.size, motora.size)), dtype=np.float32)
     imagen_puertos = eje_puertos.imshow(puertos, cmap="inferno", vmin=0.0, vmax=1.0,
                                         interpolation="nearest", aspect="auto")
-    eje_mosca.patch.set_alpha(0.35)
-    mosca = MoscaAnimada(eje_mosca)
-    eje_mosca.set_xlabel("aleteo = motoras", color=TEXTO, fontsize=7, labelpad=1)
-    eje_mosca.patch.set_facecolor("#12203a")
     barras = eje_botones.bar(range(N_ACTIONS), np.zeros(N_ACTIONS), color="#f2b632")
     eje_botones.set_ylim(0, 1)
     eje_botones.set_xticks(range(N_ACTIONS))
@@ -371,7 +305,6 @@ def main() -> int:
         imagen_puertos.set_data(puertos)
         for barra, altura in zip(barras, probabilidades):
             barra.set_height(float(altura))
-        mosca.actualiza(float(actividad[motora].mean()), accion)
         imagen_juego.set_data(env.frame)
         marcador.set_text(
             f"{info['nivel']}   x {env.x:4d}   {info['progreso'] * 100:5.1f} %   "
@@ -394,8 +327,30 @@ def main() -> int:
               f" progreso {info['progreso']:.1%})")
         return 0
 
+    # Blitting: se dibuja la figura una vez, se guarda el fondo y en cada cuadro solo se
+    # repintan los artistas que cambian. Sin esto, matplotlib rehace ejes, titulos y
+    # marcos enteros 15 veces por segundo, que es donde se iba el tiempo.
+    animados = [imagen_juego, imagen_puertos, marcador, *barras]
+    animados += [nube] if nube is not None else [imagen_cerebro]
+    if gira3d is not None:
+        animados.extend(capas_fondo)
+    for artista in animados:
+        artista.set_animated(True)
+
     plt.show(block=False)
+    figura.canvas.draw()
+    fondo_figura = figura.canvas.copy_from_bbox(figura.bbox)
+
+    def pinta() -> None:
+        figura.canvas.restore_region(fondo_figura)
+        for artista in animados:
+            artista.axes.draw_artist(artista)
+        figura.canvas.blit(figura.bbox)
+        figura.canvas.flush_events()
+
     partida = 0
+    cuadros_pintados = 0
+    arranque = time.monotonic()
     try:
         while True:
             partida += 1
@@ -405,8 +360,8 @@ def main() -> int:
             reloj = time.monotonic()
             while not done:
                 done, info = paso()
-                figura.canvas.draw_idle()
-                figura.canvas.flush_events()
+                pinta()
+                cuadros_pintados += 1
                 if args.speed > 0:
                     reloj += env.cfg.frame_skip / 60.0 / args.speed
                     espera = reloj - time.monotonic()
@@ -414,8 +369,10 @@ def main() -> int:
                         time.sleep(espera)
                     else:
                         reloj = time.monotonic()
+            transcurrido = max(time.monotonic() - arranque, 1e-6)
             print(f"  partida {partida}: {'META' if info['meta'] else 'fin'}"
-                  f"   x {env.x}   progreso {info['progreso']:.1%}")
+                  f"   x {env.x}   progreso {info['progreso']:.1%}"
+                  f"   {cuadros_pintados / transcurrido:.1f} cuadros/s")
             if not args.loop:
                 break
     except KeyboardInterrupt:
