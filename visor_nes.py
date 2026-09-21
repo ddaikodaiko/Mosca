@@ -10,6 +10,11 @@ anotada como trabajo futuro: el nucleo expone sus activaciones, asi que se puede
 actividad mientras juega. Sirve ademas de diagnostico: si la retina de neuronas se queda
 toda saturada o toda apagada, el modelo no esta usando el nucleo.
 
+Por defecto el cerebro gira en 3d (`--vista 3d`): la rotacion y la proyeccion se hacen a
+mano sobre las coordenadas, no con mplot3d, porque asi va fluido con 23.000 puntos de
+silueta y se puede pintar la profundidad. `--giro` cambia los grados por cuadro y
+`--vista frontal|superior|lateral` congela un plano.
+
 **La disposicion es anatomica de verdad.** Cada neurona se dibuja donde esta en el
 cerebro, con las coordenadas publicas de FlyWire v783 (Schlegel et al., 2024), las mismas
 que usa el visor de fluidos: las 138.625 neuronas del conectoma en gris tenue como
@@ -153,8 +158,11 @@ def main() -> int:
                         help="esperar a que aparezca el checkpoint en vez de fallar")
     parser.add_argument("--rejilla", action="store_true",
                         help="disposicion abstracta por indice en vez de la anatomica")
-    parser.add_argument("--vista", default="frontal", choices=("frontal", "superior", "lateral"),
-                        help="plano del cerebro que se dibuja")
+    parser.add_argument("--vista", default="3d",
+                        choices=("3d", "frontal", "superior", "lateral"),
+                        help="3d gira el cerebro; el resto son planos fijos")
+    parser.add_argument("--giro", type=float, default=1.1,
+                        help="grados por cuadro que gira la vista 3d")
     args = parser.parse_args()
 
     import matplotlib
@@ -221,13 +229,21 @@ def main() -> int:
 
         nodos = _np.load(Path(cfg["wiring_dir"]) / "mosca.npz")["nodes"]
         xyz, tiene_posicion = brain_positions()
-        ejes_vista = {"frontal": (0, 1), "superior": (0, 2), "lateral": (2, 1)}[args.vista]
-        fondo = xyz[tiene_posicion][:, ejes_vista]
-        activas = xyz[nodos][:, ejes_vista]
         sin_posicion = int((~tiene_posicion[nodos]).sum())
         if sin_posicion:
             print(f"aviso: {sin_posicion} neuronas del subgrafo sin coordenadas")
-        anatomia = (fondo, activas)
+        centro = _np.nanmean(xyz[tiene_posicion], axis=0)
+        # Una sola escala para los tres ejes (si no, el cerebro se deforma al girar),
+        # pero tomada del percentil 99,5 y no del maximo: cuatro neuronas sueltas en los
+        # extremos dejaban el cerebro del tamano de un garbanzo en medio del panel.
+        escala = float(_np.nanpercentile(_np.abs(xyz[tiene_posicion] - centro), 99.5))
+        fondo3d = (xyz[tiene_posicion] - centro) / escala
+        activas3d = _np.nan_to_num((xyz[nodos] - centro) / escala)
+        if args.vista != "3d":
+            ejes_vista = {"frontal": (0, 1), "superior": (0, 2), "lateral": (2, 1)}[args.vista]
+            anatomia = (fondo3d[:, ejes_vista], activas3d[:, ejes_vista])
+        else:
+            anatomia = (fondo3d, activas3d)
     sensorial = modelo.sensory.cpu().numpy()
     motora = modelo.motor.cpu().numpy()
     print(f"{etiqueta}: {n} neuronas"
@@ -253,13 +269,49 @@ def main() -> int:
 
     env.reset(args.seed)
     imagen_juego = eje_juego.imshow(env.frame)
-    if anatomia is not None:
+    gira3d = None
+    if anatomia is not None and args.vista == "3d":
+        fondo3d, activas3d = anatomia
+        # Una de cada seis de las 138.625: la silueta se sigue leyendo y la rotacion va
+        # fluida. Rotar y proyectar a mano es mucho mas rapido que mplot3d, y ademas deja
+        # pintar la profundidad, que es lo que hace que se vea volumen y no una mancha.
+        fondo3d = fondo3d[::4]
+        nube_fondo = eje_cerebro.scatter(
+            fondo3d[:, 0], -fondo3d[:, 1], s=0.8, c=fondo3d[:, 2], cmap="bone",
+            vmin=-1.6, vmax=1.9, alpha=0.5, linewidths=0, rasterized=True,
+        )
+        nube = eje_cerebro.scatter(
+            activas3d[:, 0], -activas3d[:, 1], s=16.0, c=np.zeros(activas3d.shape[0]),
+            cmap="inferno", vmin=0.0, vmax=0.8, linewidths=0, zorder=3,
+        )
+        # El cerebro es ancho y plano: al girar barre x y z, pero en vertical solo ocupa
+        # lo que mide en y. Con un cuadrado sobraba la mitad del panel en blanco.
+        ancho = float(np.percentile(np.abs(fondo3d[:, [0, 2]]), 99.8)) * 1.08
+        alto = float(np.percentile(np.abs(fondo3d[:, 1]), 99.8)) * 1.15
+        eje_cerebro.set_xlim(-ancho, ancho)
+        eje_cerebro.set_ylim(-alto, alto)
+        eje_cerebro.set_aspect("equal")
+        imagen_cerebro = None
+
+        estado_giro = {"angulo": 0.0}
+
+        def gira3d() -> None:
+            """Gira alrededor del eje dorsoventral, que es el giro de toda la vida."""
+            estado_giro["angulo"] += np.deg2rad(args.giro)
+            coseno, seno = np.cos(estado_giro["angulo"]), np.sin(estado_giro["angulo"])
+            for nube_i, puntos in ((nube_fondo, fondo3d), (nube, activas3d)):
+                x = puntos[:, 0] * coseno + puntos[:, 2] * seno
+                z = -puntos[:, 0] * seno + puntos[:, 2] * coseno
+                nube_i.set_offsets(np.c_[x, -puntos[:, 1]])
+                if nube_i is nube_fondo:
+                    nube_i.set_array(z)          # profundidad: lo de detras, mas apagado
+                else:
+                    # Las activas cambian de tamano con la profundidad para dar volumen.
+                    nube_i.set_sizes(7.0 + 11.0 * np.clip((z + 1.0) / 2.0, 0.0, 1.0))
+    elif anatomia is not None:
         fondo, activas = anatomia
-        # Silueta: una de cada tres para que la ventana no se arrastre, con alfa bajo.
         eje_cerebro.scatter(fondo[::3, 0], -fondo[::3, 1], s=0.5, c="#33415f",
                             alpha=0.55, linewidths=0, rasterized=True)
-        # Las del subgrafo van mas grandes y siempre por encima: son 500 sobre 138.625,
-        # y con el mismo tamano no se distinguirian de la silueta.
         nube = eje_cerebro.scatter(activas[:, 0], -activas[:, 1], s=16.0,
                                    c=np.zeros(activas.shape[0]), cmap="inferno",
                                    vmin=0.0, vmax=0.8, linewidths=0, zorder=3)
@@ -281,7 +333,9 @@ def main() -> int:
     eje_botones.set_ylim(0, 1)
     eje_botones.set_xticks(range(N_ACTIONS))
     eje_botones.set_xticklabels(ACCIONES, color=TEXTO, fontsize=7)
-    disposicion = "rejilla por indice" if args.rejilla else f"cerebro de la mosca, vista {args.vista}"
+    disposicion = ("rejilla por indice" if args.rejilla else
+                   ("cerebro de la mosca, 3d" if args.vista == "3d"
+                    else f"cerebro de la mosca, vista {args.vista}"))
     eje_cerebro.set_title(f"actividad del nucleo  |  {etiqueta}  |  {disposicion}",
                           color=TEXTO, fontsize=9)
     eje_puertos.set_title("sensoriales (arriba) y motoras (abajo)", color=TEXTO, fontsize=8)
@@ -305,6 +359,8 @@ def main() -> int:
         actividad = traza[-1][0].abs().cpu().numpy()
         if nube is not None:
             nube.set_array(actividad)
+            if gira3d is not None:
+                gira3d()
         else:
             lienzo = np.zeros(filas * columnas, dtype=np.float32)
             lienzo[:n] = actividad[:filas * columnas]
