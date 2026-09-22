@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -227,44 +228,66 @@ def agrega(valores: list[float]) -> dict[str, float]:
 
 
 def figura_metricas(resumen: dict[str, Any], bandas: list[Banda], destino: Path) -> None:
+    """Puntos con barra de error, no barras desde cero.
+
+    Con barras, un 0,0994 y un 0,1003 se dibujan practicamente iguales, y esa diferencia
+    del 0,8 % es justo el resultado del que se discute. Un punto codifica la posicion, asi
+    que el eje no tiene que empezar en cero para ser honesto, y ahi si se ve. La linea de
+    la persistencia va en la leyenda y no dentro del panel: pegada al eje se solapaba con
+    las etiquetas de los valores.
+    """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     metricas = [
         ("l2_1paso", "Error L2 relativo a un paso"),
-        ("l2_despliegue", f"Error L2 en despliegue"),
+        ("l2_despliegue", "Error L2 en despliegue"),
         ("tiempo_corr", "Tiempo hasta correlacion < 0,8"),
     ]
     presentes = [m for m in ORDEN if m in resumen]
-    figura, ejes = plt.subplots(1, len(metricas), figsize=(4.2 * len(metricas), 4.4))
+    figura, ejes = plt.subplots(1, len(metricas), figsize=(4.2 * len(metricas), 4.6))
     figura.patch.set_facecolor(SUPERFICIE)
 
     for eje, (clave, titulo) in zip(ejes, metricas):
         eje.set_facecolor(SUPERFICIE)
         alturas = [resumen[m][clave]["media"] for m in presentes]
         errores = [resumen[m][clave]["desviacion"] for m in presentes]
-        posiciones = np.arange(len(presentes))
-        barras = eje.bar(
-            posiciones, alturas, yerr=errores, capsize=3, width=0.5,
-            color=[COLORES[m] for m in presentes], zorder=3,
-        )
-        decimales = 2 if max(alturas) >= 1 else 4
-        # Etiquetas directas sobre cada barra: la regla de relieve las exige, porque
-        # tres de los colores quedan por debajo de 3:1 de contraste con el fondo.
-        for barra, altura, error in zip(barras, alturas, errores):
-            eje.text(
-                barra.get_x() + barra.get_width() / 2, altura + error,
-                f"{altura:.{decimales}f}", ha="center", va="bottom", fontsize=8.5,
-                color=TINTA_PRIMARIA, zorder=4,
-            )
-        if "persistencia" in resumen:
-            referencia = resumen["persistencia"][clave]["media"]
+        posiciones = np.arange(len(presentes), dtype=float)
+        referencia = resumen["persistencia"][clave]["media"] if "persistencia" in resumen else None
+
+        if referencia is not None:
             eje.axhline(referencia, color=GRIS_REFERENCIA, linestyle="--", linewidth=1.2, zorder=2)
-            eje.text(
-                -0.45, referencia, "persistencia", va="bottom", ha="left",
-                fontsize=8.5, color=TINTA_SECUNDARIA,
+        for x, altura, error, modelo in zip(posiciones, alturas, errores, presentes):
+            if referencia is not None:
+                # El tallo mide la distancia a la persistencia, que es la comparacion que
+                # importa: hacia arriba es peor, hacia abajo es mejor.
+                eje.plot([x, x], [referencia, altura], color=COLORES[modelo],
+                         linewidth=1.4, alpha=0.55, zorder=3)
+            eje.errorbar(x, altura, yerr=error, fmt="o", markersize=7, capsize=3,
+                         color=COLORES[modelo], ecolor=COLORES[modelo], zorder=4)
+
+        extremos = [a + e for a, e in zip(alturas, errores)] + [a - e for a, e in zip(alturas, errores)]
+        if referencia is not None:
+            extremos.append(referencia)
+        bajo, alto = min(extremos), max(extremos)
+        # Decimales segun lo que hay que distinguir, no segun la magnitud: con la regla
+        # anterior los cuatro cableados salian "0.0999" y la diferencia era invisible
+        # tambien en el texto, no solo en el dibujo.
+        rango = alto - bajo
+        decimales = 2 if rango <= 0 else int(np.clip(math.ceil(-math.log10(rango)) + 1, 2, 6))
+        margen = (alto - bajo) * 0.18 or max(abs(alto), 1.0) * 0.02
+        eje.set_ylim(bajo - margen, alto + margen)
+        # Etiqueta directa en cada punto: tres de los colores quedan por debajo de 3:1 de
+        # contraste con el fondo, asi que el color no puede ser el unico canal.
+        for x, altura, error in zip(posiciones, alturas, errores):
+            arriba = referencia is None or altura >= referencia
+            eje.annotate(
+                f"{altura:.{decimales}f}", (x, altura + (error if arriba else -error)),
+                textcoords="offset points", xytext=(0, 7 if arriba else -14),
+                ha="center", fontsize=8.5, color=TINTA_PRIMARIA, zorder=5,
             )
+        eje.set_xlim(-0.6, len(presentes) - 0.4)
         eje.set_title(titulo, fontsize=10.5, color=TINTA_PRIMARIA)
         eje.set_xticks(posiciones)
         eje.set_xticklabels(presentes, fontsize=9, color=TINTA_SECUNDARIA, rotation=20, ha="right")
@@ -276,9 +299,14 @@ def figura_metricas(resumen: dict[str, Any], bandas: list[Banda], destino: Path)
 
     figura.suptitle(
         "Media +- desviacion tipica entre semillas de entrenamiento",
-        fontsize=11, color=TINTA_PRIMARIA, y=0.99,
+        fontsize=11, color=TINTA_PRIMARIA, y=0.985,
     )
-    figura.tight_layout()
+    if "persistencia" in resumen:
+        figura.text(
+            0.5, 0.935, "- - -  persistencia (no cambia nada): el eje NO empieza en cero",
+            ha="center", fontsize=9, color=TINTA_SECUNDARIA,
+        )
+    figura.tight_layout(rect=(0, 0, 1, 0.92))
     figura.savefig(destino, dpi=160, facecolor=SUPERFICIE)
     plt.close(figura)
 
@@ -357,6 +385,16 @@ def figura_espectro(
         for barra, altura in zip(barras, alturas):
             eje.text(barra.get_x() + barra.get_width() / 2, altura, f"{altura:.3f}",
                      ha="center", va="bottom", fontsize=7.5, color=TINTA_PRIMARIA, zorder=4)
+
+    if "persistencia" in resumen:
+        # Sin esta linea el panel se lee como "unos cableados distorsionan mas que otros",
+        # cuando lo que dice es que TODOS distorsionan un orden de magnitud mas que no
+        # hacer nada. Un tramo por banda, no una horizontal: el valor cambia con la banda.
+        for x, banda in zip(posiciones, bandas):
+            altura = resumen["persistencia"]["espectro"][banda.nombre]["media"]
+            eje.plot([x - 0.44, x + 0.44], [altura, altura], color=GRIS_REFERENCIA,
+                     linestyle="--", linewidth=1.2, zorder=5,
+                     label="persistencia" if x == 0 else None)
 
     eje.set_xticks(posiciones)
     eje.set_xticklabels([b.etiqueta for b in bandas], fontsize=9, color=TINTA_SECUNDARIA)

@@ -825,3 +825,20 @@ mueve la aguja es mas paralelismo de CPU (mas entornos, o varios procesos), no l
 Vale tambien de prueba de humo: la politica cableada con las 4.000 neuronas del conectoma
 corre sobre el Super Mario Bros de verdad, con la observacion simbolica de la RAM, y
 completa recoleccion, GAE, actualizacion, evaluacion y checkpoint.
+
+### Las figuras de la fase 5, legibles (22-09-2026)
+
+El panel del error a un paso se dibujaba con barras desde cero: 0,0999 y 0,1003 salian
+identicos a ojo, y encima la etiqueta de la persistencia se solapaba con los valores. Es
+decir, la figura de la metrica que decide era la unica que no se podia leer. Ahora:
+
+- **puntos con barra de error y tallo hasta la persistencia**, no barras. Un punto codifica
+  posicion, asi que el eje no tiene que empezar en cero para ser honesto, y se dice en el
+  propio pie de la figura. El tallo mide la distancia a "no hacer nada": hacia arriba, peor.
+- **los decimales salen del rango, no de la magnitud.** Con la regla anterior los cuatro
+  cableados imprimian "0.0999" y la diferencia tampoco se veia en el texto. Ahora: mosca
+  0,09991, aleatorio 0,09991, recableado 0,09985, `sin_nucleo` 0,10031, persistencia 0,10072.
+- **el espectro por bandas lleva la persistencia como tramo discontinuo en cada banda.** Sin
+  ella el panel se leia como "unos cableados distorsionan mas que otros"; con ella dice lo
+  que hay: los tres distorsionan un orden de magnitud mas que no hacer nada (0,86-1,06
+  contra 0,03-0,05), y en la banda de fuera del codificador los cuatro coinciden en 0,046.
