@@ -1,0 +1,68 @@
+# Fase 6b - A/B DEL CRITICO. Identico a mario_nes_demo.yaml salvo UNA linea:
+# ppo.normalise_returns. Es la comparacion que decide si el freno era el critico.
+#
+# Medido el 22-09-2026 sobre la demo a 300 iteraciones: el critico explicaba el 0,10 de la
+# varianza del retorno y predecia 27,7 para cualquier estado. Un Linear sobre neuronas
+# acotadas por tanh que tiene que dar 30-60 necesita pesos enormes, y a lr 3e-4 no llega.
+# Con el normalizador aprende en escala centrada y GAE recibe unidades de recompensa.
+#
+# Mismo numero de iteraciones y mismo horario de lr que la referencia, o la comparacion
+# no valdria nada.
+#   python train_rl.py --config configs/mario_nes_demo.yaml --model mosca --seed 0
+#
+# ATENCION: entrenar y medir en el MISMO nivel es justo lo que el diseno prohibe, porque
+# la red puede memorizar la secuencia de botones. Esto sirve para grabar un video, NO
+# para comparar cableados. La comparacion va en configs/mario_nes.yaml, con niveles de
+# entrenamiento y de prueba disjuntos.
+device: auto
+# Instantanea para reanudar cada N ITERACIONES, en <modelo>_s<semilla>.reanudar.pt. Un
+# corte se retoma sin repetir lo hecho. Ojo: en PPO no es bit a bit —los entornos
+# arrancan de cero al reanudar— y por eso el informe anota cuantas reanudaciones hubo.
+resume_every: 10
+env: nes
+wiring_dir: artifacts/conectoma_500_proto
+output_dir: artifacts/mario_nes_demo_critico
+
+core:
+  n_internal_steps: 2
+  spectral_radius: 0.95
+  leak: 1.0
+
+encoder:
+  n_sensory: 56
+  n_motor: 56
+  n_shared: 15
+
+observation: {window_width: 11, window_height: 9}
+
+nes:
+  frame_skip: 4
+  max_steps: 800
+  random_noop: 20
+  reward_scale: 0.1
+  death_penalty: 5.0
+  stuck_steps: 80
+  stage: [1, 1]      # el nivel fijo de la demo
+
+ppo:
+  n_envs: 8
+  rollout_steps: 128
+  iterations: 300      # mismo presupuesto que la referencia de 300
+  epochs: 3
+  n_minibatches: 4
+  lr: 3.0e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip: 0.2
+  value_coefficient: 0.5
+  entropy_coefficient: 0.01
+  grad_clip: 1.0
+  normalise_returns: true    # LA UNICA diferencia con mario_nes_demo.yaml
+
+eval_every: 10       # guarda checkpoint en cada evaluacion: se puede mirar mientras corre
+eval_envs: 4
+eval_episodes: 4
+test_episodes: 8
+
+models: [mosca]
+seeds: [0]
