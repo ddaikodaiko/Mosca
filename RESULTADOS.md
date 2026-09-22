@@ -874,3 +874,17 @@ comprobado ademas que el test falla si se quita la linea que restaura el generad
 Cubre las dos fases, incluidas las etapas del curriculo de la fase B, que es donde estan el
 80 % de las horas. Probado tambien de verdad: matando el proceso con SIGKILL a mitad y
 relanzando, retoma en el paso donde estaba.
+
+### `train_rl.py` tambien se reanuda, con una promesa mas debil (22-09-2026)
+
+Misma idea que en fluidos —instantanea cada `resume_every` iteraciones con pesos,
+optimizador, planificador, generador, historial y contador— pero aqui **no es bit a bit**,
+y conviene decirlo antes de que alguien lo suponga: los entornos no se pueden serializar
+(el emulador lleva su propia RAM), asi que al reanudar arrancan de cero y la recoleccion ya
+no es la que habria salido de un tiron. Lo aprendido sobrevive entero; la reproducibilidad
+desde la semilla, no. Por eso el informe anota `reanudaciones`: si un numero tiene que ser
+reproducible, se relanza y se deja terminar.
+
+El test corta la tercera iteracion, reanuda y comprueba que la historia sale [0,1,2,3] sin
+repetidos, que `reanudaciones` vale 1 y que la instantanea se borra al terminar bien.
+Probado ademas matando el proceso con SIGKILL: retoma en la iteracion que tocaba.
