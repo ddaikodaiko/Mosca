@@ -223,10 +223,19 @@ def main() -> int:
             politica = carga_politica(ruta, cfg, wirings, device)
             # Varias partidas por nivel y media: la politica muestreada es estocastica y
             # con una sola partida el ruido tapa cualquier diferencia entre cableados.
-            partidas = [
-                juega_politica(cfg, semillas, politica, device, args.muestrea)
-                for _ in range(max(1, args.repeticiones))
-            ]
+            #
+            # La semilla se REFIJA antes de cada repeticion, y con el mismo valor para
+            # todos los modelos: asi la repeticion 3 de la mosca y la repeticion 3 del
+            # aleatorio arrancan del mismo estado del generador. No hace que jueguen
+            # igual —cada politica sortea de su propia distribucion— pero acopla el ruido
+            # del muestreo, que es la variabilidad que ya nos dio la vuelta al orden
+            # entre modelos una vez. Antes, cada modelo consumia un tramo distinto del
+            # generador segun el orden en que se evaluaba.
+            partidas = []
+            for repeticion in range(max(1, args.repeticiones)):
+                torch.manual_seed(args.semilla * 1000 + repeticion)
+                np.random.seed(args.semilla * 1000 + repeticion)
+                partidas.append(juega_politica(cfg, semillas, politica, device, args.muestrea))
             por_semilla.append({
                 metrica: np.mean([p[metrica] for p in partidas], axis=0) for metrica in METRICAS
             })

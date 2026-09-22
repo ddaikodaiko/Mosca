@@ -923,3 +923,25 @@ era una franja amarilla uniforme (saturada), ahora tiene rango. Videos en `artif
 (git-ignored) y un recorte en `docs/media/mosca_juega_nes.gif`. En la partida grabada
 (muestreada, semilla 3) llega al **77,6 %** del nivel; con la codiciosa, al 13,6 %. Una
 partida no es una medida: la medida son los 0,285 de la tabla.
+
+### El ruido del muestreo, acoplado entre modelos (22-09-2026)
+
+`evaluate_rl.py` fijaba la semilla **una vez** al empezar. Como los modelos se evaluan en
+fila, cada uno consumia un tramo distinto del generador: la mosca sorteaba sus acciones con
+unos numeros y el aleatorio con otros. No esta sesgado —los dos son estimadores validos—
+pero desperdicia precision justo donde menos sobra: ya hubo una vez en que el ruido del
+muestreo dio la vuelta al orden entre modelos.
+
+Ahora la semilla se refija **antes de cada repeticion y con el mismo valor para todos los
+modelos** (numeros aleatorios comunes). No hace que jueguen igual, porque cada politica
+sortea de su propia distribucion, pero acopla el ruido.
+
+Comprobado de la forma mas directa: evaluar el mismo checkpoint dos veces con nombres
+distintos. Con el acoplamiento, las dos filas salen identicas y el contraste pareado da
+**diferencia +0,0000 y p = 1,0000**. Sin el, esa misma pareja habria dado una diferencia
+espuria y un p cualquiera.
+
+Afecta al experimento de la fase 6 en GPU: los 18 entrenamientos se comparan con esta
+funcion. Los numeros absolutos se mueven un poco respecto a evaluaciones anteriores (cambia
+que sorteo le toca a cada partida), asi que las cifras de la fase 6 anteriores al
+22-09-2026 no son comparables una a una con las nuevas; las conclusiones no cambian.
