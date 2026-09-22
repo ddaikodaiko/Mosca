@@ -141,13 +141,21 @@ def evalua_modelo(
     modelo.eval()
     entradas, objetivos = test.pairs()
 
-    acumulado, n_pares = 0.0, entradas.shape[0]
+    # Error a un paso PAR A PAR, no solo su media: el contraste entre modelos a un paso es
+    # donde se juega el resultado (la mosca le gana a sin_nucleo por 0,0004 en el ensayo),
+    # y sin los valores pareados no hay prueba de permutacion que lo juzgue. El orden de
+    # los pares es el mismo para todos los modelos, asi que estan pareados por construccion.
+    n_pares = entradas.shape[0]
+    error_1paso_por_par: list[float] = []
     for inicio in range(0, n_pares, lote):
         trozo = entradas[inicio : inicio + lote]
+        objetivo = objetivos[inicio : inicio + lote]
         salida = modelo(trozo)
         salida = salida[0] if isinstance(salida, tuple) else salida
-        acumulado += float(relative_l2(salida, objetivos[inicio : inicio + lote])) * trozo.shape[0]
-    error_1paso = acumulado / n_pares
+        diferencia = (salida - objetivo).flatten(1).norm(dim=1)
+        escala = objetivo.flatten(1).norm(dim=1).clamp_min(1e-12)
+        error_1paso_por_par.extend((diferencia / escala).cpu().tolist())
+    error_1paso = float(np.mean(error_1paso_por_par))
 
     l2_por_trayectoria: list[float] = []
     tiempos: list[float] = []
@@ -175,6 +183,7 @@ def evalua_modelo(
     correlacion = np.concatenate(correlaciones_medias, axis=0)
     return {
         "l2_1paso": error_1paso,
+        "l2_1paso_por_par": error_1paso_por_par,
         "l2_despliegue": float(np.mean(l2_por_trayectoria)),
         "l2_despliegue_por_trayectoria": l2_por_trayectoria,
         "tiempo_corr": float(np.mean(tiempos)),
@@ -444,17 +453,23 @@ def main() -> int:
         }
         resumen[modelo]["correlacion_curvas"] = [c["correlacion_media"] for c in corridas]
 
-    # Pruebas de permutacion: mosca contra cada control, pareadas por trayectoria.
+    # Pruebas de permutacion: mosca contra cada control, pareadas.
     pruebas: dict[str, Any] = {}
     if "mosca" in crudos:
-        for clave in ("l2_despliegue_por_trayectoria", "tiempo_corr_por_trayectoria"):
+        for clave in ("l2_1paso_por_par", "l2_despliegue_por_trayectoria",
+                      "tiempo_corr_por_trayectoria"):
             mosca = np.mean([c[clave] for c in crudos["mosca"]], axis=0)
-            for control in ("aleatorio", "recableado", "denso", "sin_nucleo", "fno"):
+            # `persistencia` va la primera a proposito: es la puerta. Si el nucleo no le
+            # gana a no hacer nada, la comparacion entre cableados no significa nada, y sin
+            # el contraste escrito al lado, empatar con el aleatorio se lee como un
+            # resultado cuando no lo es (la misma leccion que evaluate_rl.py con el azar).
+            for control in ("persistencia", "sin_nucleo", "aleatorio", "recableado",
+                            "denso", "fno"):
                 if control not in crudos:
                     continue
                 otro = np.mean([c[clave] for c in crudos[control]], axis=0)
                 prueba = prueba_de_permutacion(mosca, otro, n_permutaciones, semilla=12345)
-                base = clave.replace("_por_trayectoria", "")
+                base = clave.replace("_por_trayectoria", "").replace("_por_par", "")
                 dispersion = max(
                     resumen["mosca"][base]["desviacion"], resumen[control][base]["desviacion"]
                 )
@@ -490,7 +505,7 @@ def main() -> int:
 
     print("\n" + tabla)
     if pruebas:
-        print("\nPruebas de permutacion (pareadas por trayectoria):")
+        print("\nPruebas de permutacion (pareadas: por par a un paso, por trayectoria en el resto):")
         for nombre, prueba in pruebas.items():
             dentro = prueba["dentro_de_la_variabilidad_entre_semillas"]
             veredicto = (

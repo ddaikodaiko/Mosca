@@ -13,11 +13,14 @@ from evaluate import (
     bandas_por_defecto,
     correlacion_espacial,
     error_espectral,
+    evalua_modelo,
     k_maximo_del_codificador,
     prueba_de_permutacion,
     tiempo_hasta_descorrelacion,
 )
 from data.spectral import make_grid
+from models.fno import Persistence
+from train import Trajectories
 
 
 def test_correlacion_de_un_campo_consigo_mismo_es_uno() -> None:
@@ -104,3 +107,26 @@ def test_k_del_codificador_crece_con_el_numero_de_modos() -> None:
     assert k_maximo_del_codificador(64, 32) < k_maximo_del_codificador(64, 128)
     # Con 128 modos complejos a 64x64 el codificador llega a ~9,1 (medido en la fase 3).
     assert abs(k_maximo_del_codificador(64, 128) - 9.1) < 0.2
+
+
+def test_el_error_a_un_paso_viene_par_a_par_y_en_el_mismo_orden() -> None:
+    """Sin los valores pareados no hay prueba de permutacion a un paso.
+
+    Dos modelos distintos tienen que devolver listas de la misma longitud y en el mismo
+    orden de pares, porque la prueba resta uno de otro elemento a elemento. Y la media de
+    la lista tiene que ser exactamente la metrica que se publica.
+    """
+    torch.manual_seed(0)
+    n_traj, n_save, malla = 3, 5, 16
+    test = Trajectories(
+        omega=torch.randn(n_traj, n_save, malla, malla),
+        seeds=np.arange(n_traj),
+    )
+    bandas = bandas_por_defecto(malla, k_maximo_del_codificador(malla, 8))
+    metricas = evalua_modelo(
+        Persistence(), test, pasos=2, umbral=0.8, dt_save=0.1,
+        grid_spec=make_grid(malla, device=torch.device("cpu")), bandas=bandas, lote=4,
+    )
+    por_par = metricas["l2_1paso_por_par"]
+    assert len(por_par) == n_traj * (n_save - 1)
+    assert abs(float(np.mean(por_par)) - metricas["l2_1paso"]) < 1e-9

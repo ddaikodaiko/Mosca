@@ -741,3 +741,45 @@ fase 4 real va con `continuous_x: false`**, que es lo ya probado y lo mas simple
 bandera se queda en el codigo, con su test contra el simulador, por si a 64x64 cambia algo.
 
 Con esto el YAML de la fase 4 ya no tiene ningun PENDIENTE.
+
+### `evaluate.py` contrasta ahora tambien a un paso y contra la persistencia
+
+Faltaban las dos comparaciones que mas importan. La prueba de permutacion solo corria
+sobre el despliegue y el tiempo de descorrelacion, y la lista de controles no incluia a la
+persistencia: el resultado del prototipo vive a un paso y contra no hacer nada. El error a
+un paso se guarda ahora **par a par** (mismo orden de pares en todos los modelos, asi que
+estan pareados por construccion) y `persistencia` va la primera de la lista. Es la misma
+leccion que ya estaba aprendida en `evaluate_rl.py` con la politica al azar: sin el
+contraste escrito al lado, empatar con el control se lee como un resultado.
+
+Aplicado al cribado largo (split de **test**, 40 trayectorias, 50 pasos de despliegue,
+una semilla, el codificador llega a k=6,3):
+
+| modelo | L2 1 paso | L2 despliegue | t hasta corr<0,8 | inyeccion (k<=4) | alcanzable | fuera del codificador |
+|---|---|---|---|---|---|---|
+| mosca | 0,0999 | 1,533 | 0,943 | 0,857 | 1,061 | 0,046 |
+| aleatorio | 0,0999 | 1,351 | 0,928 | 0,717 | 0,868 | 0,046 |
+| recableado | 0,0999 | 1,358 | 0,925 | 0,827 | 0,855 | 0,046 |
+| `sin_nucleo` | 0,1003 | 0,887 | 0,995 | 0,050 | 0,054 | 0,046 |
+| persistencia | 0,1007 | 0,903 | 0,985 | 0,033 | 0,053 | 0,046 |
+
+Diferencias pareadas de la mosca (p de permutacion con 10.000 remuestreos; con **una sola
+semilla** el veredicto entre semillas no es juzgable y asi se imprime):
+
+| contraste | a 1 paso | en despliegue | en t de correlacion |
+|---|---|---|---|
+| vs persistencia | **-0,0008** (p<1e-4) | **+0,629** (p<1e-4) | -0,043 (p=0,02) |
+| vs `sin_nucleo` | **-0,0004** (p<1e-4) | **+0,645** (p<1e-4) | -0,053 (p=0,003) |
+| vs aleatorio | +0,0000 (p=0,76) | +0,182 (p<1e-4) | +0,015 (p=0,42) |
+| vs recableado | +0,0001 (p<1e-4) | +0,175 (p<1e-4) | +0,018 (p=0,22) |
+
+El cuadro completo, dicho sin adornos: el nucleo cableado gana un 0,8 % a un paso y a
+cambio **empeora un 70 % el despliegue** y pierde tiempo de correlacion. El error espectral
+lo explica: en las bandas que el codificador si ve, la mosca esta en 0,86-1,06 y la
+persistencia en 0,03-0,05, o sea que el nucleo esta metiendo energia donde no toca y el
+despliegue autoregresivo la realimenta. La banda de fuera del codificador sale 0,046 en los
+cinco modelos, identica, que es exactamente lo que predice la nota de la fase 3.
+
+Otra vez el aviso: la fase B de este prototipo son 60 pasos a horizonte 5. La config real
+entrena 2.000 por etapa hasta horizonte 20, y es justo lo que deberia atacar esta
+divergencia. Con lo medido no se puede decir si lo consigue.
