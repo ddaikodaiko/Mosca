@@ -523,9 +523,18 @@ def main() -> int:
                 )
                 pruebas[f"{base}: mosca vs {control}"] = prueba
 
-    figura_metricas(resumen, bandas, figuras / "metricas.png")
-    figura_correlacion(resumen, dt_save, umbral, figuras / "correlacion.png")
-    figura_espectro(resumen, bandas, figuras / "espectro_por_bandas.png")
+    # Con la puerta del traspaso (entrenar mosca y sin_nucleo antes que nada) es facil
+    # llamar aqui cuando todavia no hay ningun checkpoint. Antes salian tres paneles
+    # vacios con una linea de persistencia y ni una palabra; mejor decirlo.
+    entrenados = [m for m in resumen if m != "persistencia"]
+    if not entrenados:
+        print(f"\nNINGUN MODELO ENTRENADO en {checkpoints}: solo esta la persistencia, que"
+              " no se entrena.\nNo hay nada que comparar, asi que no se dibujan las figuras."
+              " Entrena algo y vuelve a llamar.")
+    else:
+        figura_metricas(resumen, bandas, figuras / "metricas.png")
+        figura_correlacion(resumen, dt_save, umbral, figuras / "correlacion.png")
+        figura_espectro(resumen, bandas, figuras / "espectro_por_bandas.png")
 
     tabla = tabla_markdown(resumen, bandas)
     informe = {

@@ -842,3 +842,16 @@ decir, la figura de la metrica que decide era la unica que no se podia leer. Aho
   ella el panel se leia como "unos cableados distorsionan mas que otros"; con ella dice lo
   que hay: los tres distorsionan un orden de magnitud mas que no hacer nada (0,86-1,06
   contra 0,03-0,05), y en la banda de fuera del codificador los cuatro coinciden en 0,046.
+
+### La fase 5 a 64x64, probada de verdad (22-09-2026)
+
+`evaluate.py` no se habia ejecutado nunca a la malla real. Con la config de la fase 4
+apuntando al set pequeño de `artifacts/ns64_validacion` corre entera: bandas espectrales,
+tabla, pruebas y figuras. El codificador llega a **k = 9,1**, exactamente el numero
+documentado en la fase 3, asi que las bandas se cortan donde deben. La persistencia a
+64x64 da 0,0974 a un paso y 0,900 en despliegue de 50 pasos.
+
+De paso, una aspereza del flujo nuevo: con la puerta del traspaso (entrenar solo mosca y
+`sin_nucleo` antes de decidir) es facil llamar a `evaluate.py` cuando todavia no hay ningun
+checkpoint. Antes dibujaba tres paneles vacios con una linea de persistencia y ni una
+palabra. Ahora lo dice y no dibuja nada.
