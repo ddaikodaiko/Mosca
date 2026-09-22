@@ -1057,3 +1057,36 @@ entrena el nucleo con mascara** (no solo una lectura), hay **controles emparejad
 y cero conexiones), los niveles de test son **disjuntos** en el experimento real, las
 hipotesis estaban **registradas de antemano**, y el contraste contra apretar botones al
 azar se informa siempre. Esa ultima linea es justo la que la critica les reprocha a ellos.
+
+### A/B de la entropia: tampoco era eso (22-09-2026)
+
+`configs/mario_nes_demo_entropia.yaml`, identico al del critico salvo
+`entropy_coefficient` de 0,01 a 0,001 (verificado clave a clave).
+
+| corrida | progreso 250-300 | entropia | KL | perdida de valor | test muestreado | test codicioso |
+|---|---|---|---|---|---|---|
+| referencia | 0,285 | 1,353 | 1,5e-5 | 41,4 | 0,251 | 0,136 |
+| + critico normalizado | 0,291 | 1,693 | 0,9e-5 | 0,27 | 0,221 | 0,136 |
+| + entropia 10x menor | 0,291 | 1,640 | **0,1e-5** | 0,26 | 0,216 | 0,136 |
+
+Con el premio por explorar diez veces mas pequeno, la entropia baja de 1,69 a 1,64 —casi
+nada— y el **KL cae todavia mas, a 1e-6**. Eso se lee al reves de lo que parece: si quitar
+el bonus de entropia hace que la politica se mueva MENOS, es que casi todo su movimiento
+venia del bonus, no de la ventaja. **El gradiente de politica que viene de la ventaja es
+practicamente nulo.**
+
+### Lo que queda descartado, con numero
+
+| hipotesis | medida | veredicto |
+|---|---|---|
+| las motoras estan saturadas y no llevan senal | desviacion mediana 0,066-0,079 entre pasos; 2-6 de 56 constantes; 3,7-7,8 % saturadas | **descartada** |
+| el critico esta ciego | varianza explicada 0,10 -> 0,36-0,40 tras normalizar | **arreglada, y no era el freno** |
+| el bonus de entropia aplasta a la politica | con 10x menos, KL baja a 1e-6 | **descartada** |
+| la politica no depende de lo que ve | distancia al promedio: mediana 0,17, p90 0,34, maxima 0,50; 4 acciones distintas salen como maximo | **descartada** |
+
+Queda en pie la sospecha estructural: **el gradiente esta truncado a un paso de entorno**.
+El estado oculto persiste durante el despliegue pero entra desacoplado en la actualizacion,
+asi que el nucleo no puede asignar credito a nada que pase a mas de un paso de distancia.
+La comparacion que lo decide es el control **MLP libre** con la receta identica: si tampoco
+aprende, el freno esta en la tarea o en el planteamiento de PPO; si aprende, esta en el
+nucleo.

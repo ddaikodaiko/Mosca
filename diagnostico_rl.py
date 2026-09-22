@@ -51,6 +51,10 @@ def main() -> int:
     # estados, ni el valor ni la politica pueden depender de lo que pasa en pantalla,
     # por mucho que se entrene: la lectura es lineal sobre estas motoras.
     motoras: list[np.ndarray] = []
+    # Distribucion de acciones en cada estado. Si apenas cambia entre situaciones muy
+    # distintas, la politica no puede expresar conducta que dependa de lo que ve, y
+    # entonces no hay hiperparametro de PPO que la salve.
+    politicas: list[np.ndarray] = []
     for semilla in range(args.semilla, args.semilla + args.episodios):
         observacion = env.reset(semilla)
         h = politica.initial_state(1, device)
@@ -68,6 +72,7 @@ def main() -> int:
                 accion = int(torch.distributions.Categorical(logits=logits).sample().item())
             predichos.append(float(valor.item()))
             motoras.append(h[0, politica.motor].cpu().numpy().copy())
+            politicas.append(logits.softmax(dim=1)[0].cpu().numpy().copy())
             observacion, recompensa, done, info = env.step(accion)
             recompensas.append(float(recompensa))
 
@@ -87,6 +92,7 @@ def main() -> int:
         env.close()
 
     actividad = np.stack(motoras)            # (pasos, n_motoras)
+    probabilidades = np.stack(politicas)     # (pasos, n_acciones)
     v = np.concatenate(valores)
     r = np.concatenate(retornos_reales)
     ev = 1 - np.var(r - v) / max(float(np.var(r)), 1e-9)
@@ -111,6 +117,24 @@ def main() -> int:
     if np.median(por_neurona) < 0.05:
         print("  La lectura casi no se mueve entre estados: el critico solo puede predecir"
               "\n  una constante, y eso es exactamente lo que hace.")
+
+    # Cuanto depende la POLITICA de lo que ve. La distancia de variacion total entre la
+    # distribucion de cada estado y la media mide exactamente eso: 0 = la misma politica
+    # pase lo que pase en pantalla, 1 = totalmente distinta en cada estado.
+    media_politica = probabilidades.mean(axis=0)
+    tv = 0.5 * np.abs(probabilidades - media_politica).sum(axis=1)
+    entropia = -(probabilidades * np.log(probabilidades + 1e-12)).sum(axis=1)
+    print(f"\npolitica ({probabilidades.shape[1]} acciones):"
+          f"  entropia media {entropia.mean():.3f} de un maximo de"
+          f" {np.log(probabilidades.shape[1]):.3f}")
+    print(f"  distancia al promedio (variacion total): mediana {np.median(tv):.4f},"
+          f" percentil 90 {np.percentile(tv, 90):.4f}, maxima {tv.max():.4f}")
+    print(f"  accion mas probable: {probabilidades.argmax(axis=1).astype(float).std():.3f}"
+          f" de desviacion entre pasos"
+          f"   ({len(set(probabilidades.argmax(axis=1)))} acciones distintas salen como maximo)")
+    if np.median(tv) < 0.05:
+        print("  La politica es casi la misma en todos los estados: no puede depender de lo"
+              "\n  que ve, y ningun hiperparametro de PPO arregla eso.")
     return 0
 
 
