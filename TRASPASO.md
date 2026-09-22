@@ -234,7 +234,14 @@ Tres cosas que no se pueden saltar al leer estos números:
   heurística 0,752) salen siempre en el informe. Un número de modelo sin ellas no se lee.
   En el prototipo ningún modelo le ganó al salto constante.
 - **La evaluación muestreada necesita `--repeticiones 6` o más.** Con una partida por nivel
-  el orden entre modelos se da la vuelta solo por ruido de muestreo.
+  el orden entre modelos se da la vuelta solo por ruido de muestreo. Desde el 22-09-2026 ese
+  ruido va además acoplado entre modelos (la semilla se refija antes de cada repetición, con
+  el mismo valor para todos), así que la comparación es más fina; las cifras de fase 6
+  anteriores a esa fecha no son comparables una a una con las nuevas.
+- **Para comparar versiones de un mismo entrenamiento** (por ejemplo el mismo modelo a 300 y
+  a 900 iteraciones) está `--checkpoint`, repetible: cada fichero entra como una fila contra
+  las mismas cuatro líneas de referencia, y el informe va a `rl_evaluacion_checkpoints.json`
+  sin pisar el normal.
 - **Los niveles de NES son fijos**: `envs/nes_mario.STAGES` reparte los 32 en conjuntos
   disjuntos. Cualquier cifra medida en un nivel entrenado no vale.
   `configs/mario_nes_demo.yaml` entrena y mide en 1-1 **a propósito, solo para grabar
