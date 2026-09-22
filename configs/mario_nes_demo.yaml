@@ -39,7 +39,10 @@ nes:
 ppo:
   n_envs: 8
   rollout_steps: 128
-  iterations: 600      # ~2,5 M fotogramas de NES
+  iterations: 300      # ~1,2 M fotogramas de NES; 8,6 s por iteracion medidos en el
+                       # portatil (6 hilos), o sea ~45 min. El intento anterior pedia 600
+                       # y se corto en la 190; ahora hay reanudacion, asi que un corte no
+                       # obliga a empezar de cero.
   epochs: 3
   n_minibatches: 4
   lr: 3.0e-4
