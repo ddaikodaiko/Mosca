@@ -42,7 +42,8 @@ phase_b:
 augment:
   enabled: true
   forcing_wavenumber: 4
-  continuous_x: false      # PENDIENTE: se decide con el cribado de configs/ensayo_32_largo.yaml
+  continuous_x: false      # medido el 22-09-2026: a 32x32 no cambia nada (0,0994 con y sin),
+                           # asi que se queda en lo ya probado. Ver RESULTADOS.md.
 
 evaluation:
   rollout_steps: 50

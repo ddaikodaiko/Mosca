@@ -90,6 +90,10 @@ resultado sobre el cableado.
 - **Puertos injustos**: dejar que las neuronas de entrada y de salida se solaparan libremente
   daba a la mosca 159 atajos entrada→salida y al aleatorio 18. Ahora el solape es 92 en todos
   los modelos.
+- **El control de cero conexiones**: a escala de ensayo (N=500, 32x32, 20.000 pasos) la
+  mosca le gana a `sin_nucleo` —las mismas neuronas sin ninguna conexión— por 0,0004 de
+  error. Es el número que dice si hay algo que discutir, y de momento dice que no: a esta
+  escala lo que predice el modelo no lo hace su recurrencia.
 - **El techo del diseño**: incluso un núcleo perfecto solo bajaría el error a un paso de
   0,105 a 0,083 a 64×64, porque el codificador solo ve los modos de Fourier más bajos. Hay
   margen para distinguir cableados, pero es estrecho.

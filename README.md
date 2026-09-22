@@ -89,6 +89,10 @@ wrong.
   earlier result with augmentation was discarded.
 - **Unfair ports**: letting input and output neurons overlap freely gave the fly 159
   input→output shortcuts and the random graph 18. Overlap is now fixed at 92 for every model.
+- **The zero-connection control**: at rehearsal scale (N=500, 32×32, 20,000 steps) the fly
+  beats `sin_nucleo` — the same neurons with no connections at all — by 0.0004 error. That
+  is the number that says whether there is anything to discuss, and so far it says no: at
+  this scale the model's prediction does not come from its recurrence.
 - **The ceiling of the design**: even a perfect core would only lower the one-step error from
   0.105 to 0.083 at 64×64, because the encoder sees only the lowest Fourier modes. There is a
   window to tell wirings apart, but it is narrow.

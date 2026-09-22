@@ -134,9 +134,9 @@ otros:
 python train.py --config configs/entrenamiento_64.yaml --model mosca --seed 0
 ```
 
-Antes de lanzar hay **una decisión pendiente en el YAML**: `augment.continuous_x` está en
-`false` a la espera del cribado de `configs/ensayo_32_largo.yaml`. Si no se corre el
-cribado, se deja en `false` (es lo ya probado) y se anota.
+El YAML ya no tiene decisiones pendientes: `augment.continuous_x` se queda en `false`
+porque la ablación del 22-09-2026 midió que a 32x32 no cambia nada (0,0994 a un paso con la
+traslación continua y con la discreta). Está en RESULTADOS.md.
 
 ### Cómo se lee el resultado
 
@@ -145,7 +145,8 @@ cribado, se deja en `false` (es lo ya probado) y se anota.
    tiene resolución** y el empate mosca-aleatorio **no se publica como H0 confirmada**. Hay
    que rediseñar el codificador.
 2. **Después, contra `sin_nucleo`.** Si la mosca no le gana, lo que predice no sale del
-   cableado.
+   cableado. A escala de ensayo le gana por 0,0004 (0,0994 contra 0,0998), que es no
+   ganarle.
 3. **Solo entonces**, mosca contra aleatorio y contra recableado, con la permutación
    pareada que ya hace `evaluate.py`.
 4. El error espectral, **por bandas y en log**: el 91 % de la energía está en k<=4 y en

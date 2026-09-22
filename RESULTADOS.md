@@ -693,3 +693,51 @@ fase 4 no caben en este portatil ni de lejos.
 `train_rl.py` acepta ahora `--iterations` (escribe en `medicion_<n>it/`, sin pisar los
 checkpoints) y cronometra las primeras iteraciones separando recoleccion y actualizacion.
 Con `eval_every: 50`, antes la primera senal de coste tardaba una hora en aparecer.
+
+## 22-09-2026: el cribado largo, leido (y la ablacion de continuous_x)
+
+El ensayo largo de `configs/ensayo_32_largo.yaml` se habia corrido el 16-09 y sus cinco
+informes llevaban desde entonces sin leerse. Son 20.000 pasos de fase A (cinco veces el
+ensayo corto), una semilla, 32x32 y 64 modos.
+
+| modelo | error a 1 paso | despliegue 10 | despliegue 50 |
+|---|---|---|---|
+| persistencia | 0,1001 | 0,4496 | 0,934 |
+| `sin_nucleo` | 0,0998 | 0,4475 | 0,920 |
+| mosca | **0,0994** | 0,4725 | 1,618 |
+| aleatorio | **0,0994** | 0,4584 | 1,434 |
+| recableado | **0,0993** | 0,4640 | 1,472 |
+| fno (del ensayo corto, 4.000 pasos) | 0,035-0,038 | 0,15-0,16 | 0,42-0,47 |
+
+Tres lecturas, ninguna buena para el nucleo:
+
+1. **La mosca le gana al control `sin_nucleo` por 0,0004.** Cuatro diezmilesimas entre
+   "tiene el cableado de una mosca" y "no tiene ninguna conexion". A esta escala, lo que
+   predice el modelo no lo hace su recurrencia.
+2. **Entrenar cinco veces mas compra 0,0004** (0,0998 -> 0,0994). La curva de la fase A no
+   llega a estancarse ni dispara la parada temprana — baja monotona de 0,1002 en el paso
+   1.000 a 0,0990 en el 20.000 — pero al ritmo de 0,0001 cada 2.000 pasos. El techo de la
+   fisica viendo esos mismos 64 modos esta en 0,0861.
+3. **En despliegue largo el nucleo empeora con mas entrenamiento.** Los tres cableados se
+   van a 1,43-1,62 a 50 pasos, peor que no hacer nada (0,934). El aviso hay que ponerlo
+   entero: la fase B del prototipo son **60 pasos a horizonte 5**, un muñon; la config real
+   entrena 2.000 por etapa hasta horizonte 20. Esta divergencia no predice la de la GPU,
+   pero si dice que la estabilidad del despliegue hay que mirarla, y que a un paso el
+   modelo esta aprendiendo algo que a 50 pasos se realimenta y explota.
+
+### Ablacion: `augment.continuous_x` no aporta nada
+
+El cribado cambiaba dos cosas a la vez (4.000 -> 20.000 pasos y la traslacion en x por
+fracciones de casilla), asi que no atribuia. `configs/ensayo_32_largo_x_discreta.yaml` es
+identico al largo salvo la bandera:
+
+| traslacion en x | mejor val de la fase A | error a 1 paso | despliegue 50 |
+|---|---|---|---|
+| continua (fase de Fourier) | 0,0990 | 0,0994 | 1,618 |
+| por casillas enteras | 0,0991 | 0,0994 | 1,558 |
+
+Identicas. La mejora del cribado venia de entrenar mas, no de la bandera. **Decision: la
+fase 4 real va con `continuous_x: false`**, que es lo ya probado y lo mas simple; la
+bandera se queda en el codigo, con su test contra el simulador, por si a 64x64 cambia algo.
+
+Con esto el YAML de la fase 4 ya no tiene ningun PENDIENTE.
