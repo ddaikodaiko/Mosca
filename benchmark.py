@@ -116,17 +116,20 @@ def mide_modelo(
 
     pico_mb = (torch.cuda.max_memory_allocated(device) / 2**20) if device.type == "cuda" else None
 
-    total = float(cfg["phase_a"]["steps"]) * segundos_a
+    horas_a = float(cfg["phase_a"]["steps"]) * segundos_a / 3600
+    horas_b = 0.0
     if segundos_b is not None:
         # El curriculo corre por etapas; todas cuestan como la mas larga o menos.
-        total += len(curriculo) * float(cfg["phase_b"]["steps_per_stage"]) * segundos_b
+        horas_b = len(curriculo) * float(cfg["phase_b"]["steps_per_stage"]) * segundos_b / 3600
     return {
         "modelo": nombre,
         "parametros": int(n_parametros),
         "segundos_paso_a": round(segundos_a, 4),
         "segundos_paso_b": round(segundos_b, 4) if segundos_b is not None else None,
         "pico_memoria_mb": round(pico_mb, 1) if pico_mb is not None else None,
-        "horas_una_semilla": round(total / 3600, 2),
+        "horas_fase_a": round(horas_a, 2),
+        "horas_fase_b": round(horas_b, 2),
+        "horas_una_semilla": round(horas_a + horas_b, 2),
     }
 
 
@@ -155,7 +158,7 @@ def main() -> int:
 
     ancho = max(len(f["modelo"]) for f in filas)
     print(f"{'modelo':<{ancho}}  {'parametros':>11}  {'s/paso A':>9}  {'s/paso B':>9}"
-          f"  {'pico MB':>8}  {'h/semilla':>9}")
+          f"  {'pico MB':>8}  {'h fase A':>8}  {'h fase B':>8}  {'h/semilla':>9}")
     for fila in filas:
         if fila.get("parametros", 0) == 0:
             continue
@@ -163,11 +166,18 @@ def main() -> int:
         pico = fila["pico_memoria_mb"]
         print(f"{fila['modelo']:<{ancho}}  {fila['parametros']:>11,}"
               f"  {fila['segundos_paso_a']:>9.3f}  {(f'{b:.3f}' if b else '-'):>9}"
-              f"  {(f'{pico:.0f}' if pico else '-'):>8}  {fila['horas_una_semilla']:>9.2f}")
+              f"  {(f'{pico:.0f}' if pico else '-'):>8}  {fila['horas_fase_a']:>8.2f}"
+              f"  {fila['horas_fase_b']:>8.2f}  {fila['horas_una_semilla']:>9.2f}")
 
     total = sum(f.get("horas_una_semilla", 0.0) for f in filas) * semillas
+    total_b = sum(f.get("horas_fase_b", 0.0) for f in filas) * semillas
     print(f"\ncota para {len(modelos)} modelos x {semillas} semillas: {total:.1f} h"
           "  (sin evaluaciones periodicas; la parada temprana puede recortarlo)")
+    if total > 0:
+        # Donde esta el tiempo decide donde se recorta. El despliegue de la fase B es
+        # secuencial, asi que es el que peor acelera en GPU y el primero que hay que mirar.
+        print(f"de las cuales la fase B (despliegue) se lleva {total_b:.1f} h, "
+              f"el {100 * total_b / total:.0f} %")
 
     salida = Path(cfg["output_dir"])
     salida.mkdir(parents=True, exist_ok=True)

@@ -88,8 +88,23 @@ Imprime, por modelo, segundos por paso de la fase A y de la fase B, **pico de me
 GPU** y una cota de horas por semilla, y escribe `artifacts/train_64/benchmark.json`.
 Funciona sin los datos generados (usa campos aleatorios de la misma forma y lo dice).
 
-Referencia de esta máquina (CPU, 64x64, N=4.000, datos sintéticos): `mosca` 0,351 s por
-paso de la fase A y 6,23 s por paso de la fase B, **12,33 h por semilla**.
+Referencia de este portátil (CPU, 6 hilos, 64x64, N=4.000, datos sintéticos), que es
+contra lo que hay que comparar lo que salga en la 3060 Ti:
+
+| modelo | s/paso fase A | s/paso fase B (h=20) | h por semilla |
+|---|---|---|---|
+| mosca | 0,363 | 6,13 | 12,24 |
+| aleatorio | 0,312 | 6,33 | 12,28 |
+| recableado | 0,341 | 5,97 | 11,84 |
+| denso | 0,164 | 3,21 | 6,25 |
+| `sin_nucleo` | 0,125 | 2,62 | 5,06 |
+| fno | 1,029 | 7,33 | 17,94 |
+
+Los 18 entrenamientos son 197 h aquí, y **la fase B se lleva el 80 %**. El despliegue es
+secuencial (20 pasos encadenados de cuatro subpasos cada uno), así que es lo que peor
+acelera en GPU: si allí sigue dominando, la palanca es `phase_b.steps_per_stage` o recortar
+el currículo, no la fase A. Esa corrida del benchmark vale además de prueba de humo: los
+seis modelos construyen, propagan y retropropagan a escala real sin fallar.
 
 Para las fases 6 y 6b, que no pasan por `benchmark.py`:
 
@@ -112,6 +127,28 @@ del contrato de reproducibilidad). En PPO, el que pesa es `ppo.n_envs` x `rollou
 python train.py    --config configs/entrenamiento_64.yaml
 python evaluate.py --config configs/entrenamiento_64.yaml
 ```
+
+### Antes de las 18, las 3 que deciden
+
+No lances la tanda entera de primeras. Con **tres entrenamientos** (una sola semilla) ya
+sabes si el experimento tiene resolución, y cuestan una fracción de las 18:
+
+```bash
+python train.py --config configs/entrenamiento_64.yaml --model mosca      --seed 0
+python train.py --config configs/entrenamiento_64.yaml --model sin_nucleo --seed 0
+python evaluate.py --config configs/entrenamiento_64.yaml     # persistencia sale sola
+```
+
+`evaluate.py` imprime ya los dos contrastes pareados que deciden: mosca contra
+persistencia y mosca contra `sin_nucleo`, a un paso y en despliegue. Si la mosca no se
+despega de las dos, las quince restantes miden un empate que ya conocemos, y lo que toca
+es rediseñar el codificador, no gastar la GPU. En el ensayo de 32x32 la mosca le ganaba a
+la persistencia por 0,0008 a un paso **y le perdía por 0,629 en despliegue**: eso es no
+tener resolución.
+
+Si se despega, entonces sí, la tanda entera.
+
+### La tanda entera
 
 Mejor aún, la tanda entera de uno en uno, con un log por entrenamiento y saltando lo que
 ya esté terminado. Se puede cortar y relanzar las veces que haga falta (después de un

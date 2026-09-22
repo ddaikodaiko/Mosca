@@ -783,3 +783,29 @@ cinco modelos, identica, que es exactamente lo que predice la nota de la fase 3.
 Otra vez el aviso: la fase B de este prototipo son 60 pasos a horizonte 5. La config real
 entrena 2.000 por etapa hasta horizonte 20, y es justo lo que deberia atacar esta
 divergencia. Con lo medido no se puede decir si lo consigue.
+
+### Los seis modelos, medidos a escala real (22-09-2026, CPU con 6 hilos)
+
+`benchmark.py` sobre `configs/entrenamiento_64.yaml` sirve de dos cosas a la vez: mide, y
+de paso comprueba que los seis modelos **construyen, propagan y retropropagan a la escala
+real** (N=4.000, malla 64, 128 modos complejos, despliegue de horizonte 20). Ninguno falla.
+Datos sinteticos de la misma forma que los reales, que es lo que fija el tiempo por paso.
+
+| modelo | parametros | s/paso fase A | s/paso fase B (h=20) | h fase A | h fase B | h por semilla |
+|---|---|---|---|---|---|---|
+| mosca | 311.328 | 0,363 | 6,13 | 2,02 | 10,22 | 12,24 |
+| aleatorio | 311.328 | 0,312 | 6,33 | 1,73 | 10,54 | 12,28 |
+| recableado | 311.328 | 0,341 | 5,97 | 1,89 | 9,95 | 11,84 |
+| denso | 307.984 | 0,164 | 3,21 | 0,91 | 5,34 | 6,25 |
+| `sin_nucleo` | 135.584 | 0,125 | 2,62 | 0,69 | 4,37 | 5,06 |
+| fno | 1.188.353 | 1,029 | 7,33 | 5,72 | 12,22 | 17,94 |
+
+Los 18 entrenamientos son **197 h de esta CPU**, ocho dias largos. Y el reparto importa mas
+que el total: **la fase B se lleva el 80 %** (158 h de 197). El despliegue es secuencial —
+20 pasos encadenados, cada uno con cuatro subpasos del nucleo — asi que es la parte que
+peor acelera en GPU. Si al medir en la 3060 Ti la fase B sigue dominando, la palanca es
+`phase_b.steps_per_stage` o recortar el curriculo, no tocar la fase A.
+
+Nota de honestidad sobre estas cifras: son con 6 de los 12 hilos (el portatil tenia que
+seguir usable) y con datos sinteticos. Valen como reparto entre fases y como orden de
+magnitud, no como record de la maquina.
