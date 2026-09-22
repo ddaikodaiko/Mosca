@@ -177,6 +177,17 @@ La marca de "terminado" es el informe `train_report_<modelo>_s<n>.json`, que se 
 acabar; el checkpoint no vale de marca porque en PPO se guarda también a medias. Si un
 modelo falla, la tanda sigue con los demás y lo dice en el resumen final.
 
+**Y un entrenamiento cortado no se pierde.** Cada 500 pasos (`resume_every` en el YAML)
+`train.py` guarda una instantánea en `checkpoints/<modelo>_s<n>.reanudar.pt` con pesos,
+optimizador, planificador, parada temprana y el estado del generador. Si el PC se reinicia
+o le das a Ctrl-C, vuelves a lanzar el mismo comando y sigue donde estaba, con los mismos
+pesos que si no hubiera parado (hay un test que lo compara bit a bit). Al terminar bien, la
+instantánea se borra sola. Así que el PC puede reiniciarse a mitad de la tanda sin drama.
+
+Esto vale para fluidos. **`train_rl.py` (Mario) sigue sin reanudación**: guarda la política
+en cada evaluación, pero no el optimizador ni el estado de los entornos, así que un corte
+allí obliga a relanzar ese entrenamiento entero.
+
 A mano es lo mismo, un trozo cada vez; cada uno escribe su propio informe sin pisar los
 otros:
 

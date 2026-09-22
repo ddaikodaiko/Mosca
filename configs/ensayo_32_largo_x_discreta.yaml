@@ -9,6 +9,10 @@ data_dir: artifacts/ns32
 wiring_dir: artifacts/conectoma_500_proto
 output_dir: artifacts/ensayo_32_largo_x_discreta
 grad_clip: 1.0
+# Instantanea para reanudar cada N pasos, en checkpoints/<modelo>_s<semilla>.reanudar.pt.
+# Un corte (reinicio, Ctrl-C, apagon) se retoma donde estaba, con el estado del generador
+# dentro, asi que los pesos salen identicos a no haber parado. 0 lo apaga.
+resume_every: 2000
 
 max_trajectories: {train: 200, val: 40}   # el set ns32 completo
 

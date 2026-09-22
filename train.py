@@ -258,8 +258,112 @@ class EarlyStopping:
             model.load_state_dict(self.best_state)
 
 
+@dataclass
+class Reanudacion:
+    """Guarda el entrenamiento a medias para poder seguirlo tras un corte.
+
+    Un entrenamiento de la fase 4 son horas; un reinicio, una actualizacion o un Ctrl-C
+    los tiraba enteros. Se guarda cada `cada_pasos` pasos el estado COMPLETO: pesos,
+    optimizador, planificador, la parada temprana con su mejor estado, el registro, y
+    **el estado del generador aleatorio**. Eso ultimo no es un detalle: sin el, al
+    reanudar cambia el orden de los lotes y el entrenamiento deja de ser el que la
+    semilla dice que es. Con el, reanudar da exactamente los mismos pesos que no haber
+    parado, y hay un test que lo comprueba bit a bit.
+
+    El fichero se escribe en un temporal y se renombra, asi que un corte en mitad del
+    guardado no deja un checkpoint corrupto. Al terminar bien, se borra.
+    """
+
+    ruta: Path
+    cada_pasos: int
+    estado: dict[str, Any] | None = None
+
+    @classmethod
+    def para(cls, cfg: dict[str, Any], nombre: str, semilla: int) -> "Reanudacion":
+        directorio = Path(cfg["output_dir"]) / "checkpoints"
+        directorio.mkdir(parents=True, exist_ok=True)
+        ruta = directorio / f"{nombre}_s{semilla}.reanudar.pt"
+        cada = int(cfg.get("resume_every", 0))
+        estado = None
+        if cada > 0 and ruta.is_file():
+            estado = torch.load(ruta, map_location="cpu", weights_only=False)
+            print(f"    reanudando desde la fase {estado['fase']}, paso {estado['paso']}"
+                  f" (etapa {estado['etapa']})")
+        return cls(ruta=ruta, cada_pasos=cada, estado=estado)
+
+    @property
+    def activa(self) -> bool:
+        return self.cada_pasos > 0
+
+    def toca_guardar(self, paso: int) -> bool:
+        return self.activa and paso % self.cada_pasos == 0
+
+    def guarda(self, **estado: Any) -> None:
+        temporal = self.ruta.with_suffix(".pt.part")
+        torch.save(estado, temporal)
+        temporal.replace(self.ruta)
+
+    def consume(self, fase: str, etapa: int) -> dict[str, Any] | None:
+        """Devuelve el estado si corresponde a esta fase y etapa, y lo marca como usado."""
+        if self.estado is None:
+            return None
+        if self.estado["fase"] != fase or self.estado["etapa"] != etapa:
+            return None
+        estado, self.estado = self.estado, None
+        return estado
+
+    def ya_pasada(self, fase: str, etapa: int) -> bool:
+        """True si el estado guardado va por delante de esta fase o etapa: se salta."""
+        if self.estado is None:
+            return False
+        if fase == "A":
+            return self.estado["fase"] == "B"
+        return self.estado["fase"] == "B" and self.estado["etapa"] > etapa
+
+    def termina(self) -> None:
+        self.ruta.unlink(missing_ok=True)
+
+
 def cosine_schedule(optimiser: torch.optim.Optimizer, total_steps: int) -> Any:
     return torch.optim.lr_scheduler.CosineAnnealingLR(optimiser, T_max=max(total_steps, 1))
+
+
+def instantanea(
+    fase: str, etapa: int, paso: int, model: nn.Module, optimiser: torch.optim.Optimizer,
+    scheduler: Any, stopper: EarlyStopping, generator: torch.Generator,
+    log: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Todo lo que hace falta para seguir exactamente donde se dejo."""
+    return {
+        "fase": fase,
+        "etapa": etapa,
+        "paso": paso,
+        "modelo": model.state_dict(),
+        "optimizador": optimiser.state_dict(),
+        "planificador": scheduler.state_dict(),
+        "parada": {"best": stopper.best, "best_state": stopper.best_state,
+                   "waited": stopper.waited},
+        "generador": generator.get_state(),
+        "log": log,
+    }
+
+
+def restaura(
+    model: nn.Module, optimiser: torch.optim.Optimizer, scheduler: Any,
+    stopper: EarlyStopping, generator: torch.Generator, log: list[dict[str, Any]],
+    estado: dict[str, Any],
+) -> int:
+    """Deja todo como estaba y devuelve el paso por el que hay que seguir."""
+    model.load_state_dict(estado["modelo"])
+    optimiser.load_state_dict(estado["optimizador"])
+    scheduler.load_state_dict(estado["planificador"])
+    stopper.best = estado["parada"]["best"]
+    stopper.best_state = estado["parada"]["best_state"]
+    stopper.waited = estado["parada"]["waited"]
+    generator.set_state(estado["generador"])
+    log.clear()
+    log.extend(estado["log"])
+    return int(estado["paso"]) + 1
 
 
 def train_phase_a(
@@ -270,6 +374,7 @@ def train_phase_a(
     generator: torch.Generator,
     augmenter: Augmenter,
     log: list[dict[str, Any]],
+    reanuda: Reanudacion | None = None,
 ) -> None:
     phase = cfg["phase_a"]
     steps = int(phase["steps"])
@@ -278,10 +383,18 @@ def train_phase_a(
     scheduler = cosine_schedule(optimiser, steps)
     stopper = EarlyStopping(patience=int(phase["patience"]))
 
+    primer_paso = 1
+    if reanuda is not None:
+        if reanuda.ya_pasada("A", 0):
+            return                      # el corte fue ya en la fase B
+        guardado = reanuda.consume("A", 0)
+        if guardado is not None:
+            primer_paso = restaura(model, optimiser, scheduler, stopper, generator, log, guardado)
+
     inputs, targets = train.pairs()
     every = int(phase["eval_every"])
     t0 = time.perf_counter()
-    for step in range(1, steps + 1):
+    for step in range(primer_paso, steps + 1):
         index = torch.randint(0, inputs.shape[0], (batch,), generator=generator, device=inputs.device)
         source, target = augmenter(inputs[index], targets[index], generator=generator)
         optimiser.zero_grad()
@@ -304,6 +417,9 @@ def train_phase_a(
             if stopper.should_stop:
                 print(f"    A parada temprana en el paso {step}")
                 break
+        if reanuda is not None and reanuda.toca_guardar(step):
+            reanuda.guarda(**instantanea("A", 0, step, model, optimiser, scheduler,
+                                         stopper, generator, log))
     stopper.restore(model)
 
 
@@ -315,17 +431,26 @@ def train_phase_b(
     generator: torch.Generator,
     augmenter: Augmenter,
     log: list[dict[str, Any]],
+    reanuda: Reanudacion | None = None,
 ) -> None:
     phase = cfg["phase_b"]
     batch = int(phase["batch_size"])
     t0 = time.perf_counter()
-    for horizon in phase["curriculum"]:
+    for etapa, horizon in enumerate(phase["curriculum"]):
         horizon = int(horizon)
         steps = int(phase["steps_per_stage"])
         optimiser = torch.optim.Adam(model.parameters(), lr=float(phase["lr"]))
         scheduler = cosine_schedule(optimiser, steps)
         stopper = EarlyStopping(patience=int(phase["patience"]))
-        for step in range(1, steps + 1):
+        primer_paso = 1
+        if reanuda is not None:
+            if reanuda.ya_pasada("B", etapa):
+                continue                # el corte fue en una etapa posterior
+            guardado = reanuda.consume("B", etapa)
+            if guardado is not None:
+                primer_paso = restaura(model, optimiser, scheduler, stopper, generator,
+                                       log, guardado)
+        for step in range(primer_paso, steps + 1):
             start, target = train.windows(horizon, generator, batch)
             start, target = augmenter(start, target, generator=generator)
             optimiser.zero_grad()
@@ -349,6 +474,9 @@ def train_phase_b(
                 if stopper.should_stop:
                     print(f"    B h={horizon} parada temprana en el paso {step}")
                     break
+            if reanuda is not None and reanuda.toca_guardar(step):
+                reanuda.guarda(**instantanea("B", etapa, step, model, optimiser, scheduler,
+                                             stopper, generator, log))
         stopper.restore(model)
 
 
@@ -374,9 +502,16 @@ def train_one(
     t0 = time.perf_counter()
     if n_params > 0:
         augmenter = Augmenter.from_config(cfg)
-        train_phase_a(model, splits["train"], splits["val"], cfg, generator, augmenter, log)
+        reanuda = Reanudacion.para(cfg, name, seed)
+        if reanuda.estado is not None:
+            # Los pesos del corte, antes de decidir por que fase se sigue.
+            model.load_state_dict(reanuda.estado["modelo"])
+        train_phase_a(model, splits["train"], splits["val"], cfg, generator, augmenter, log,
+                      reanuda)
         if cfg["phase_b"]["curriculum"]:
-            train_phase_b(model, splits["train"], splits["val"], cfg, generator, augmenter, log)
+            train_phase_b(model, splits["train"], splits["val"], cfg, generator, augmenter,
+                          log, reanuda)
+        reanuda.termina()
     seconds = time.perf_counter() - t0
 
     batch = int(cfg["phase_a"]["batch_size"])

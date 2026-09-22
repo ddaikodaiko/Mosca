@@ -855,3 +855,22 @@ De paso, una aspereza del flujo nuevo: con la puerta del traspaso (entrenar solo
 `sin_nucleo` antes de decidir) es facil llamar a `evaluate.py` cuando todavia no hay ningun
 checkpoint. Antes dibujaba tres paneles vacios con una linea de persistencia y ni una
 palabra. Ahora lo dice y no dibuja nada.
+
+### `train.py` se puede reanudar (22-09-2026)
+
+Un entrenamiento de la fase 4 son horas; un reinicio, una actualizacion del sistema o un
+Ctrl-C los tiraba enteros, y `scripts/tanda.sh` solo sabia saltar los **terminados**. Ahora
+cada `resume_every` pasos (500 en la config real) se guarda una instantanea en
+`checkpoints/<modelo>_s<semilla>.reanudar.pt` con pesos, optimizador, planificador, parada
+temprana, registro y **el estado del generador aleatorio**. Se escribe en un temporal y se
+renombra, asi que un corte durante el guardado no deja un fichero a medias, y al terminar
+bien se borra.
+
+Lo del generador no es un detalle de implementacion: sin el, al reanudar cambia el orden de
+los lotes y el entrenamiento deja de ser el que la semilla dice que es. Con el, **reanudar
+da los mismos pesos, bit a bit, que no haber parado**, y hay un test que lo comprueba —
+comprobado ademas que el test falla si se quita la linea que restaura el generador.
+
+Cubre las dos fases, incluidas las etapas del curriculo de la fase B, que es donde estan el
+80 % de las horas. Probado tambien de verdad: matando el proceso con SIGKILL a mitad y
+relanzando, retoma en el paso donde estaba.
