@@ -71,7 +71,8 @@ def main() -> int:
                 valor = politica.normalizador.desnormaliza(valor)
                 accion = int(torch.distributions.Categorical(logits=logits).sample().item())
             predichos.append(float(valor.item()))
-            motoras.append(h[0, politica.motor].cpu().numpy().copy())
+            if hasattr(politica, "motor"):
+                motoras.append(h[0, politica.motor].cpu().numpy().copy())
             politicas.append(logits.softmax(dim=1)[0].cpu().numpy().copy())
             observacion, recompensa, done, info = env.step(accion)
             recompensas.append(float(recompensa))
@@ -91,7 +92,6 @@ def main() -> int:
     if hasattr(env, "close"):
         env.close()
 
-    actividad = np.stack(motoras)            # (pasos, n_motoras)
     probabilidades = np.stack(politicas)     # (pasos, n_acciones)
     v = np.concatenate(valores)
     r = np.concatenate(retornos_reales)
@@ -104,19 +104,25 @@ def main() -> int:
         print("\nEl critico apenas explica el retorno: las ventajas son sobre todo ruido y"
               "\nla politica avanza a ciegas. Antes de culpar al cableado, arreglar esto.")
 
-    # De donde viene: el actor y el critico son lineales sobre las motoras.
-    por_neurona = actividad.std(axis=0)
-    saturadas = float((np.abs(actividad) > 0.99).mean())
-    print(f"\nmotoras ({actividad.shape[1]} neuronas, {actividad.shape[0]} pasos):"
-          f"  |h| medio {np.abs(actividad).mean():.3f}"
-          f"   desviacion ENTRE pasos: mediana {np.median(por_neurona):.4f},"
-          f" maxima {por_neurona.max():.4f}")
-    print(f"  neuronas practicamente constantes (desv < 0,01): "
-          f"{int((por_neurona < 0.01).sum())} de {actividad.shape[1]}"
-          f"   |   saturadas |h|>0,99: {100 * saturadas:.1f} %")
-    if np.median(por_neurona) < 0.05:
-        print("  La lectura casi no se mueve entre estados: el critico solo puede predecir"
-              "\n  una constante, y eso es exactamente lo que hace.")
+    # De donde viene: el actor y el critico son lineales sobre las motoras. No aplica a
+    # politicas sin roles anatomicos (p.ej. MLPPolicy, sin atributo `motor`).
+    if motoras:
+        actividad = np.stack(motoras)            # (pasos, n_motoras)
+        por_neurona = actividad.std(axis=0)
+        saturadas = float((np.abs(actividad) > 0.99).mean())
+        print(f"\nmotoras ({actividad.shape[1]} neuronas, {actividad.shape[0]} pasos):"
+              f"  |h| medio {np.abs(actividad).mean():.3f}"
+              f"   desviacion ENTRE pasos: mediana {np.median(por_neurona):.4f},"
+              f" maxima {por_neurona.max():.4f}")
+        print(f"  neuronas practicamente constantes (desv < 0,01): "
+              f"{int((por_neurona < 0.01).sum())} de {actividad.shape[1]}"
+              f"   |   saturadas |h|>0,99: {100 * saturadas:.1f} %")
+        if np.median(por_neurona) < 0.05:
+            print("  La lectura casi no se mueve entre estados: el critico solo puede predecir"
+                  "\n  una constante, y eso es exactamente lo que hace.")
+    else:
+        print("\n(sin roles anatomicos de motoras/sensoriales en esta politica: se omite ese "
+              "diagnostico)")
 
     # Cuanto depende la POLITICA de lo que ve. La distancia de variacion total entre la
     # distribucion de cada estado y la media mide exactamente eso: 0 = la misma politica

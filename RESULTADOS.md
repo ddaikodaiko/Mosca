@@ -1090,3 +1090,136 @@ asi que el nucleo no puede asignar credito a nada que pase a mas de un paso de d
 La comparacion que lo decide es el control **MLP libre** con la receta identica: si tampoco
 aprende, el freno esta en la tarea o en el planteamiento de PPO; si aprende, esta en el
 nucleo.
+
+---
+
+## 22-09-2026: primera sesion en la GPU (RTX 3060 Ti)
+
+Traspaso hecho: clon nuevo del repo en la maquina con GPU, entorno preparado desde cero.
+
+### Entorno: una diferencia real con lo que decia el traspaso
+
+Python instalado en esta maquina es **3.14**, no 3.11-3.13 como en el portatil. La rueda
+`torch==2.14.0` de PyPI (CPU) instala sin problema, pero la variante CUDA que recomendaba
+`TRASPASO.md` (`--index-url .../whl/cu124`) **no tiene build para cp314**: solo llega hasta
+cp313. Los indices `cu126` y `cu130` si tienen cp314. Instalado con `cu126`:
+
+```
+torch 2.14.0+cu126, torch.cuda.is_available() == True, "NVIDIA GeForce RTX 3060 Ti"
+```
+
+`pytest -q`: **107 pasan** (antes de regenerar el subgrafo real salian 103 + 4 skip; con
+`conectoma_4000` generado, los 4 que dependian de el corren tambien).
+
+### Coste real medido en la 3060 Ti, no estimado
+
+`benchmark.py --config configs/entrenamiento_64.yaml`, con datos sinteticos:
+
+| modelo | parametros | s/paso fase A | s/paso fase B (h=20) | h/semilla |
+|---|---|---|---|---|
+| mosca | 311.328 | 0,015 | 0,276 | 0,54 |
+| aleatorio | 311.328 | 0,015 | 0,266 | 0,53 |
+| recableado | 311.328 | 0,015 | 0,260 | 0,51 |
+| denso | 307.984 | 0,018 | 0,362 | 0,70 |
+| sin_nucleo | 135.584 | 0,008 | 0,107 | 0,22 |
+| fno | 1.188.353 | 0,023 | 0,209 | 0,48 |
+
+**18 entrenamientos: 8,9 h** (contra las 197 h de la CPU del portatil). Pico de memoria del
+fno, el mas pesado: 2,9 GB de los 8 GB de la tarjeta — sobra margen de sobra. La fase B
+sigue llevandose la mayoria (83 %), igual que en CPU.
+
+### Datos reales de fluidos 64x64, generados en la GPU
+
+`python -m data.simulate_ns --config configs/ns_64.yaml`: **~80 s** (contra los ~13 min
+estimados de CPU; el simulador trabaja en float64, y aun asi la GPU lo saca mucho mas
+rapido que 6 hilos de CPU aqui). Los cinco criterios de aceptacion de la fase 1 se repiten
+sobre el set completo (200+40+40 trayectorias, no la validacion pequena):
+
+| Criterio | Valor | Limite |
+|---|---|---|
+| Deriva de energia | +0,025 %/t (train) | < 5 % |
+| CFL maximo | 0,213 | < 0,5 |
+| Reproducible bit a bit | True, desviacion 0,000e+00 | — |
+
+### Las 3 que deciden, a escala real: la mosca SI se despega (giro respecto al prototipo)
+
+`train.py --config configs/entrenamiento_64.yaml --model {mosca,sin_nucleo} --seed 0`,
+seguido de `evaluate.py`. N=4.000, 128 modos, malla 64x64, 20.000 pasos fase A + curriculo
+5/10/20 completo en fase B (no el munon de 60 pasos del cribado de 32x32).
+
+| modelo | L2 1 paso | L2 despliegue (50) | t hasta corr<0,8 |
+|---|---|---|---|
+| persistencia | 0,1010 | 0,8866 | 1,08 |
+| **mosca** | **0,1004** | **0,7884** | **1,15** |
+| sin_nucleo | 0,1018 | 0,8210 | 1,07 |
+
+- **vs persistencia:** -0,0006 a un paso, **-0,0982 en despliegue** (11 % relativo mejor),
+  +0,07 en tiempo de correlacion.
+- **vs sin_nucleo:** -0,0014 a un paso, **-0,0326 en despliegue** (4 % relativo mejor),
+  +0,0775 en tiempo de correlacion.
+
+Es la lectura opuesta al cribado de 32x32 (RESULTADOS.md, seccion 22-09-2026 anterior),
+donde la mosca **perdia** contra la persistencia en despliegue por 0,629: aqui gana. La
+diferencia estructural es la fase B completa (curriculo real hasta horizonte 20, no 60
+pasos a horizonte 5) y la escala real (128 modos, N=4.000, no 64 modos y N=500).
+
+**Aviso obligatorio:** los p-valores de permutacion por trayectoria salen significativos
+(p < 0,0001 en casi todos los contrastes), pero **con una sola semilla el veredicto entre
+semillas no es juzgable** — es la advertencia que ya lleva incorporada `evaluate.py`. La
+lectura es prometedora, no confirmada; para eso estan las otras dos semillas por modelo.
+
+**Decision (segun el criterio pre-registrado en TRASPASO.md 5):** el nucleo se despega,
+asi que se lanza la tanda completa. `mosca_s0` ya contaba (mas arriba); mosca_s1 tardo
+tambien **19 min real** (contra los 32 min que estimaba el benchmark: la parada temprana o
+el patience recortan algo el tiempo real).
+
+### La tanda completa de 18, lanzada y en marcha
+
+`scripts/tanda.sh configs/entrenamiento_64.yaml`, uno a uno, saltando lo ya hecho. Al cierre
+de esta sesion: **mosca s0 y s1 terminados, mosca s2 en marcha**, 15 pendientes. Se
+interrumpio para apagar la maquina (sin drama: instantanea cada 500 pasos, se retoma con el
+mismo comando). Pendiente para la proxima sesion: dejarla terminar (~8 h que quedan mas o
+menos, contando lo ya hecho) y correr `evaluate.py` sobre las 18 completas.
+
+### Fase 6: el MLP libre SI aprende — el freno esta en el nucleo
+
+Pendiente que habia quedado a medias en el portatil (ver seccion anterior). Corrido en la
+GPU: `configs/mario_nes_demo_critico.yaml --model mlp --seed 0`, 300 iteraciones, **~40
+min** (el cuello es el emulador de NES en CPU, la GPU no acelera la recoleccion).
+
+```
+python diagnostico_rl.py artifacts/mario_nes_demo_critico/mlp_s0.pt --config configs/mario_nes_demo_critico.yaml
+```
+
+| | nucleo con mascara (referencia) | **MLP libre** |
+|---|---|---|
+| varianza explicada del critico | 0,10 -> 0,36-0,40 (normalizado) | **+0,494** |
+| progreso muestreado | 0,098 (constante: "saltar siempre") | **0,36-0,56** segun nivel |
+| entropia de la politica | se aplana | **1,376** de un maximo de 1,946, viva |
+| acciones distintas como maximo probable | 1 (degenerada) | **5** |
+
+El MLP **si** aprende, y con margen: supera el salto constante (0,381) en 3 de 4 niveles de
+validacion. Segun el criterio pre-registrado (RESULTADOS.md, seccion del critico ciego): si
+el MLP aprende, el freno esta en el nucleo, no en la tarea ni en el planteamiento de PPO. El
+unico sospechoso que queda en pie es el gradiente truncado a un paso de entorno — cambiarlo
+es una desviacion del diseno y esta pendiente de consultar con el usuario antes de tocar
+codigo (no se ha tocado).
+
+`diagnostico_rl.py` no soportaba politicas sin roles anatomicos (`MLPPolicy` no tiene
+`.motor`/`.sensory`: no es recurrente, no hay "neuronas motoras" que leer). Se le anadio un
+guard (`hasattr(politica, "motor")`) para que la varianza explicada se calcule igual y solo
+se omita la seccion de diagnostico de motoras cuando no aplica. Es un arreglo de
+herramienta, no un cambio de diseno del experimento.
+
+### Pendiente para la proxima sesion, por orden
+
+1. Dejar terminar la tanda de 18 (en marcha, interrumpida para apagar) y correr
+   `evaluate.py` sobre el resultado completo — es la que responde a la pregunta del
+   proyecto con las 3 semillas.
+2. Decision del usuario: **el gradiente truncado a un paso de entorno** en la fase 6 (unico
+   sospechoso que queda, cambiarlo es desviacion del diseno).
+3. El checkpoint de la demo de NES entrenada (`artifacts/mario_nes_demo/mosca_s0.pt`, las
+   300 iteraciones del 22-09-2026) vive solo en el disco del portatil — `artifacts/` esta
+   en `.gitignore` y no viaja con el clon. Para verlo jugar con el visor anatomico
+   (`visor_nes.py`) en esta maquina hay que traerlo a mano o reentrenarlo aqui (~40 min,
+   limitado por el emulador en CPU, no por la GPU).

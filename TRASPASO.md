@@ -12,6 +12,33 @@ el **MLP libre con la receta identica** (misma config, `model: mlp`). Se lanzo e
 portatil y se corto; no hay config ni resultado guardados. Es el primer comando que hay que
 lanzar alli, y esta en el punto 8.
 
+---
+
+## Actualizacion, cierre de la primera sesion en la GPU (22-09-2026 noche)
+
+Todo lo de abajo (puntos 1-6) ya se hizo una vez en la 3060 Ti. Quedan dos cosas abiertas
+para la proxima sesion, **en esta misma maquina** (los datos y checkpoints no viajan por
+git, `artifacts/` esta en `.gitignore`):
+
+1. **Terminar la tanda de 18 de la fase 4.** Se lanzo, iba por `mosca_s2` (mosca_s0 y s1 ya
+   terminados) y se corto para apagar la maquina. Retomar con el mismo comando de siempre,
+   no pierde nada (instantanea cada 500 pasos):
+   ```bash
+   bash scripts/tanda.sh configs/entrenamiento_64.yaml
+   python evaluate.py --config configs/entrenamiento_64.yaml
+   ```
+   Las 3 que deciden ya se corrieron a escala real y la mosca **se despega** de persistencia
+   y de `sin_nucleo` (detalle en RESULTADOS.md, seccion "22-09-2026: primera sesion en la
+   GPU"): es lo que justifico lanzar la tanda completa.
+2. **El MLP libre de la fase 6 ya corrio y SI aprende** (varianza explicada +0,494,
+   progreso 0,36-0,56). Segun el criterio pre-registrado, el freno esta en el nucleo, no en
+   la tarea. El unico sospechoso que queda —el gradiente truncado a un paso de entorno— es
+   una desviacion del diseno: **pedir permiso al usuario antes de tocar codigo**, no
+   proponerlo solo.
+3. Nota menor: `torch==2.14.0` con CUDA necesita el indice `cu126` o `cu130` en esta
+   maquina (Python 3.14), no `cu124` como decia este documento mas arriba — `cu124` no
+   tiene build para cp314. `pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cu126`.
+
 ## 0. Resumen de lo que hay que lanzar allí
 
 | Tanda | Config | Entrenamientos | Se mide con |
