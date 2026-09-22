@@ -1,5 +1,9 @@
-# Generado en el portatil (solo CPU). En el PC con GPU, instalar torch con la rueda CUDA
-# que corresponda: pip install torch --index-url https://download.pytorch.org/whl/cu124
+# Generado en el portatil, donde torch viene del indice de PyTorch en su variante +cpu.
+# Aqui va SIN la etiqueta local a proposito: la variante +cpu no existe en PyPI
+# y `pip install -r requirements.txt` fallaria en cualquier maquina que no use ese indice.
+# La rueda por defecto de PyPI ya trae CUDA, asi que en el PC con GPU no hay que hacer nada
+# especial; si se quiere una version concreta de CUDA:
+#   pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cu124
 
 contourpy==1.4.0
 cycler==0.12.1
@@ -28,10 +32,14 @@ scipy==1.18.1
 setuptools==78.1.0
 six==1.17.0
 sympy==1.14.0
-torch==2.14.0+cpu
+torch==2.14.0
 typing_extensions==4.16.0
 
 # Fase 6b: Super Mario Bros de NES con emulador (seccion 13 del diseno). La ROM viene
 # dentro de gym-super-mario-bros; no se descarga nada. Solo hace falta para envs/nes_mario.py.
-nes-py>=9.0.1
-gym-super-mario-bros>=9.1.0
+# Versiones exactas con las que corre el entorno de NES en el portatil: nes-py rompe con
+# pyglet 2.x, asi que el pin de pyglet no es opcional.
+nes-py==9.0.1
+gym-super-mario-bros==9.1.0
+gymnasium==1.3.0
+pyglet==1.5.21

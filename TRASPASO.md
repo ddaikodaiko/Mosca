@@ -21,17 +21,25 @@ del proyecto**; las otras dos son la sección 13 del diseño y van después.
 ## 1. Preparar
 
 ```bash
-git clone <este repo> && cd Mosca
+git clone https://github.com/ddaikodaiko/Mosca && cd Mosca
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-# requirements trae torch+cpu: en la 3060 Ti, sustituirlo por la rueda CUDA
-pip install --force-reinstall torch --index-url https://download.pytorch.org/whl/cu124
+pip install -r requirements.txt          # la rueda por defecto de torch ya trae CUDA
 pytest -q                                # 96 tests, todos deben pasar
-python -c "import torch; print(torch.cuda.get_device_name(0))"
+python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
 ```
 
-Para las fases 6 y 6b hace falta además `pip install nes-py gym-super-mario-bros`. La ROM
-viene dentro del paquete; no se descarga nada de ningún sitio.
+Python 3.13 en el portátil; cualquier 3.11+ vale. `requirements.txt` incluye ya el entorno
+de NES de las fases 6 y 6b (la ROM viene dentro del paquete `gym-super-mario-bros`; no se
+descarga nada de ningún sitio) con `pyglet` fijado a 1.5.21, porque `nes-py` rompe con
+pyglet 2.x.
+
+Hasta el 22-09-2026 `requirements.txt` pedía `torch==2.14.0+cpu`, que **no existe en PyPI**:
+la instalación habría fallado ahí mismo. Ya va sin la etiqueta local.
+
+Si `torch.cuda.is_available()` sale `False`, el driver de NVIDIA se queda corto para la
+rueda por defecto: `pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cu124`
+y probar otra vez. **No lanzar nada hasta que esa línea imprima el nombre de la 3060 Ti**,
+porque `device: auto` cae a CPU sin quejarse y lo que deberían ser horas serían días.
 
 ## 2. Datos que hay que regenerar allí (no se copian)
 
@@ -105,16 +113,25 @@ python train.py    --config configs/entrenamiento_64.yaml
 python evaluate.py --config configs/entrenamiento_64.yaml
 ```
 
-Se puede trocear por modelo y por semilla; los checkpoints son independientes y cada trozo
-escribe su propio `train_report_<modelo>_s<n>.json` sin pisar los demás:
+Mejor aún, la tanda entera de uno en uno, con un log por entrenamiento y saltando lo que
+ya esté terminado. Se puede cortar y relanzar las veces que haga falta (después de un
+reinicio, por ejemplo) y no repite nada:
 
 ```bash
-for m in mosca aleatorio recableado denso sin_nucleo fno; do
-  for s in 0 1 2; do
-    python train.py --config configs/entrenamiento_64.yaml --model "$m" --seed "$s"
-  done
-done
+scripts/tanda.sh configs/entrenamiento_64.yaml               # 18 entrenamientos
+tail -f artifacts/train_64/logs/mosca_s0.log                 # ver cómo va
 python evaluate.py --config configs/entrenamiento_64.yaml    # lee los checkpoints sueltos
+```
+
+La marca de "terminado" es el informe `train_report_<modelo>_s<n>.json`, que se escribe al
+acabar; el checkpoint no vale de marca porque en PPO se guarda también a medias. Si un
+modelo falla, la tanda sigue con los demás y lo dice en el resumen final.
+
+A mano es lo mismo, un trozo cada vez; cada uno escribe su propio informe sin pisar los
+otros:
+
+```bash
+python train.py --config configs/entrenamiento_64.yaml --model mosca --seed 0
 ```
 
 Antes de lanzar hay **una decisión pendiente en el YAML**: `augment.continuous_x` está en
@@ -138,10 +155,10 @@ cribado, se deja en `false` (es lo ya probado) y se anota.
 ## 6. Fases 6 y 6b — Mario
 
 ```bash
-python train_rl.py    --config configs/mario.yaml                       # entorno propio
+scripts/tanda.sh      configs/mario.yaml     mario            # entorno propio
 python evaluate_rl.py --config configs/mario.yaml --muestrea --repeticiones 6
 
-python train_rl.py    --config configs/mario_nes.yaml                   # NES con emulador
+scripts/tanda.sh      configs/mario_nes.yaml mario            # NES con emulador
 python evaluate_rl.py --config configs/mario_nes.yaml --muestrea --repeticiones 6
 ```
 
