@@ -133,7 +133,9 @@ def collect(
         action = distribution.sample()
         actions[t] = action
         log_probs[t] = distribution.log_prob(action)
-        values[t] = value
+        # El critico puede estar prediciendo el retorno normalizado; GAE necesita
+        # unidades de recompensa. Con el normalizador apagado esto es la identidad.
+        values[t] = policy.normalizador.desnormaliza(value)
 
         obs, reward, done, infos = envs.step(action.cpu().numpy())
         rewards[t] = torch.as_tensor(reward, device=device)
@@ -147,6 +149,7 @@ def collect(
         state["obs"] = torch.as_tensor(obs, dtype=torch.float32, device=device)
 
     _, last_value, _ = policy(state["obs"], state["h"])
+    last_value = policy.normalizador.desnormaliza(last_value)
     advantages = torch.zeros_like(rewards)
     accumulator = torch.zeros(n_envs, device=device)
     next_value = last_value
@@ -182,6 +185,14 @@ def ppo_update(
     advantages = flat(batch.advantages)
     returns = flat(batch.returns)
     advantages = (advantages - advantages.mean()) / advantages.std().clamp_min(1e-8)
+    # El critico aprende en escala normalizada: con retornos de 30-60 y una lectura lineal
+    # sobre neuronas acotadas por tanh, ajustarlos pide pesos enormes y a lr 3e-4 no llega
+    # (medido: tras 300 iteraciones predecia 27,7 para cualquier estado, varianza explicada
+    # 0,10). Los valores guardados en el lote estan en unidades de recompensa, asi que para
+    # el recorte del critico habria que volver a normalizarlos; aqui no se recorta el valor,
+    # asi que basta con normalizar el objetivo. Apagado, todo esto es la identidad.
+    policy.normalizador.actualiza(returns)
+    returns = policy.normalizador.normaliza(returns)
 
     n_samples = observations.shape[0]
     minibatch = max(1, n_samples // int(cfg["n_minibatches"]))

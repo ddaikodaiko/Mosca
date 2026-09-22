@@ -194,3 +194,46 @@ def test_sin_nucleo_no_tiene_sinapsis_pero_si_puertos() -> None:
     assert policy.core.n_edges == 0
     assert np.array_equal(policy.sensory.numpy(), mosca.sensory.numpy())
     assert np.array_equal(policy.motor.numpy(), mosca.motor.numpy())
+
+
+def test_el_normalizador_de_retorno_apagado_es_la_identidad() -> None:
+    """Lo entrenado antes tiene que seguir reproduciendose igual."""
+    from models.masked_policy import NormalizadorDeRetorno
+
+    normalizador = NormalizadorDeRetorno(activo=False)
+    retornos = torch.tensor([12.0, 48.0, -3.0])
+    normalizador.actualiza(retornos)
+    assert torch.equal(normalizador.normaliza(retornos), retornos)
+    assert torch.equal(normalizador.desnormaliza(retornos), retornos)
+    assert float(normalizador.media) == 0.0 and float(normalizador.desviacion) == 1.0
+
+
+def test_el_normalizador_encendido_centra_el_objetivo_y_deshace_el_cambio() -> None:
+    """El critico aprende en escala normalizada; GAE necesita unidades de recompensa."""
+    from models.masked_policy import NormalizadorDeRetorno
+
+    normalizador = NormalizadorDeRetorno(activo=True, inercia=0.5)
+    generador = torch.Generator().manual_seed(0)
+    for _ in range(40):
+        normalizador.actualiza(torch.randn(256, generator=generador) * 10 + 30)
+
+    retornos = torch.randn(256, generator=generador) * 10 + 30
+    objetivo = normalizador.normaliza(retornos)
+    assert abs(float(objetivo.mean())) < 0.5, "el objetivo del critico sigue descentrado"
+    assert 0.5 < float(objetivo.std()) < 2.0, "el objetivo del critico sigue mal escalado"
+    # Y el camino de vuelta, que es el que usa GAE.
+    assert torch.allclose(normalizador.desnormaliza(objetivo), retornos, atol=1e-3)
+
+
+def test_el_normalizador_viaja_en_el_checkpoint() -> None:
+    """Si no estuviera en el state_dict, al evaluar el critico diria otra cosa."""
+    politica = build_policy(
+        "mosca",
+        {"core": {"n_internal_steps": 2}, "encoder": {"n_sensory": 12, "n_motor": 12,
+                                                      "n_shared": 4},
+         "ppo": {"normalise_returns": True}},
+        N_FEATURES, N_ACTIONS, 0, {"mosca": toy_wiring(n_neurons=40, seed=0)},
+    )
+    assert politica.normalizador.activo
+    claves = set(politica.state_dict())
+    assert {"normalizador.media", "normalizador.desviacion"} <= claves

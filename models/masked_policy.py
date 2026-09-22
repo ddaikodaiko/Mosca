@@ -104,6 +104,51 @@ class ConnectomePolicy(nn.Module):
         return (logits, value, h, trace) if record else (logits, value, h)
 
 
+
+class NormalizadorDeRetorno(nn.Module):
+    """Escala con la que el critico aprende, en vez de pelearse con el tamano del retorno.
+
+    El critico es un `Linear` sobre neuronas acotadas por tanh. Si el retorno vale 30 o 60,
+    para representarlo necesita pesos enormes, y con lr 3e-4 tarda muchisimo en llegar:
+    medido en la demo de NES, tras 300 iteraciones predecia 27,7 para CUALQUIER estado y
+    explicaba el 10 % de la varianza del retorno. Con las ventajas hechas casi de ruido, la
+    politica avanza a ciegas.
+
+    Aqui el critico predice el retorno NORMALIZADO, y se desnormaliza cuando hace falta en
+    unidades de recompensa (el calculo de GAE). La media y la desviacion son medias
+    moviles, viajan en el checkpoint como buffers, y con `activo=False` la clase es la
+    identidad, asi que lo entrenado antes sigue reproduciendose igual.
+    """
+
+    def __init__(self, activo: bool = False, inercia: float = 0.99) -> None:
+        super().__init__()
+        self.activo = activo
+        self.inercia = inercia
+        self.register_buffer("media", torch.zeros(()))
+        self.register_buffer("desviacion", torch.ones(()))
+
+    @torch.no_grad()
+    def actualiza(self, retornos: Tensor) -> None:
+        if not self.activo:
+            return
+        self.media.mul_(self.inercia).add_((1 - self.inercia) * retornos.mean())
+        self.desviacion.mul_(self.inercia).add_(
+            (1 - self.inercia) * retornos.std().clamp_min(1e-6)
+        )
+
+    def normaliza(self, retornos: Tensor) -> Tensor:
+        """Retorno en unidades de recompensa -> objetivo del critico."""
+        if not self.activo:
+            return retornos
+        return (retornos - self.media) / self.desviacion.clamp_min(1e-6)
+
+    def desnormaliza(self, valores: Tensor) -> Tensor:
+        """Salida del critico -> unidades de recompensa (lo que necesita GAE)."""
+        if not self.activo:
+            return valores
+        return valores * self.desviacion.clamp_min(1e-6) + self.media
+
+
 class MLPPolicy(nn.Module):
     """Control sin cableado: un MLP libre del mismo presupuesto de parametros.
 
@@ -174,6 +219,12 @@ def build_policy(
     encoder_cfg = dict(cfg.get("encoder", {}))
     reference = wirings["mosca"]
 
+    ppo_cfg = dict(cfg.get("ppo", {}))
+    normalizador = NormalizadorDeRetorno(
+        activo=bool(ppo_cfg.get("normalise_returns", False)),
+        inercia=float(ppo_cfg.get("return_momentum", 0.99)),
+    )
+
     if name == "mlp":
         core = ConnectomePolicy(
             reference, n_features, n_actions, n_shared=int(encoder_cfg["n_shared"]),
@@ -182,7 +233,9 @@ def build_policy(
         )
         budget = sum(p.numel() for p in core.parameters() if p.requires_grad)
         hidden = hidden_for_budget(budget, n_features, n_actions)
-        return MLPPolicy(n_features, n_actions, hidden)
+        politica = MLPPolicy(n_features, n_actions, hidden)
+        politica.normalizador = normalizador
+        return politica
 
     if name == "denso":
         fraction = float((reference.sign < 0).mean())
@@ -195,9 +248,11 @@ def build_policy(
         wiring = wirings[name]
         port_wiring = None
 
-    return ConnectomePolicy(
+    politica = ConnectomePolicy(
         wiring, n_features, n_actions, n_shared=int(encoder_cfg["n_shared"]),
         port_wiring=port_wiring,
         n_sensory=int(encoder_cfg["n_sensory"]), n_motor=int(encoder_cfg["n_motor"]),
         **core_cfg,
     )
+    politica.normalizador = normalizador
+    return politica
