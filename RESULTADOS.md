@@ -996,3 +996,64 @@ tiene resolucion por construccion**: se estaria comparando el ruido de seis cabl
 el mismo cuadro que en fluidos —donde el empate venia de que ninguno aprende— pero por una
 causa distinta y, esta si, arreglable. Por eso la varianza explicada del critico pasa a ser
 una **puerta** antes de lanzar los 18 entrenamientos en GPU.
+
+### A/B del critico: arreglado, y no basta (22-09-2026)
+
+`configs/mario_nes_demo_critico.yaml`, identico a la demo de 300 iteraciones salvo
+`ppo.normalise_returns` (verificado comparando las dos configs clave a clave: solo difieren
+en esa linea y en el directorio de salida).
+
+| | referencia | con normalizacion |
+|---|---|---|
+| varianza explicada del critico | +0,10 | **+0,40** |
+| perdida de valor (iter 250-300) | 42, y subiendo | **0,27** |
+| desviacion del valor / del retorno | 5,3 / 22,6 | 9,1 / 18,2 |
+| saturacion de las motoras | 7,8 % | **3,9 %** |
+| \|h\| medio de las motoras | 0,727 | 0,283 |
+| progreso de entrenamiento (250-300) | 0,285 | 0,291 |
+| entropia final | 1,353 | 1,693 |
+| **KL por actualizacion** | 1e-5 | **1e-5** |
+| test muestreado | 0,251 | 0,221 |
+| test codicioso | 0,136 | 0,136 |
+
+El critico pasa de predecir 27,7 para cualquier estado a explicar el 40 % de la varianza, y
+de regalo la saturacion de las motoras baja a la mitad (al no dominar el gradiente del
+valor, los pesos del codificador crecen menos: es el mismo mecanismo que ya se habia
+medido). **La politica no se mueve.** El KL por actualizacion sigue en 1e-5 y el progreso
+esta dentro del ruido.
+
+O sea: el critico ciego era un problema real y esta arreglado, pero **no era el que frenaba
+a la politica**.
+
+### El siguiente sospechoso, con numero
+
+Comparando las magnitudes de la perdida en las dos corridas (media de las iteraciones
+250-300):
+
+| | \|perdida de politica\| | termino de entropia (coef x H) | razon |
+|---|---|---|---|
+| referencia | 0,00005 | 0,01353 | **250x** |
+| normalizado | 0,00005 | 0,01693 | **320x** |
+
+El premio por explorar es **dos ordenes y medio de magnitud** mayor que la senal de mejorar.
+La entropia se queda en 1,69 de un maximo de ln(7) = 1,95: una politica casi uniforme, que
+es exactamente lo que se ve al jugar (da botonazos razonables pero no se compromete). El
+A/B siguiente baja `entropy_coefficient` de 0,01 a 0,001, una linea otra vez.
+
+### Contexto: no somos los primeros en poner al conectoma a jugar
+
+Buscado el 22-09-2026. Tras el mapeo del MaleCNS v1.0 (166.700 neuronas, septiembre de
+2026) aparecieron en dias varios proyectos: `fly-games` (Mario, Kung Fu y Doom), `nfly`
+(cualquier entorno de Gymnasium; con el cableado congelado y una lectura supervisada juega
+al Pong al nivel de una CNN), `FlyBrain-Worldle` (REINFORCE sobre ganancias sinapticas) y
+`drosophilos` (un motor tipo Doom dentro del sustrato). La critica publica de esa ola
+(P. Mineault, neuroai.science) es que son redes **congeladas** con un decodificador
+entrenado encima, que la vision es casi decorativa, y que lo que se ve es ruido recurrente:
+"random button mashing in a video game environment".
+
+Lo que distingue a este repo no es llegar primero, que no llegamos: es que aqui **se
+entrena el nucleo con mascara** (no solo una lectura), hay **controles emparejados**
+(aleatorio con misma densidad, recableado con grados exactos, denso con mismos parametros,
+y cero conexiones), los niveles de test son **disjuntos** en el experimento real, las
+hipotesis estaban **registradas de antemano**, y el contraste contra apretar botones al
+azar se informa siempre. Esa ultima linea es justo la que la critica les reprocha a ellos.

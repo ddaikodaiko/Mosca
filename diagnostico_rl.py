@@ -62,6 +62,9 @@ def main() -> int:
                 entrada = torch.as_tensor(observacion, dtype=torch.float32,
                                           device=device).unsqueeze(0)
                 logits, valor, h = politica(entrada, h)
+                # Si el critico aprendio en escala normalizada, hay que devolverlo a
+                # unidades de recompensa o la comparacion con el retorno no significa nada.
+                valor = politica.normalizador.desnormaliza(valor)
                 accion = int(torch.distributions.Categorical(logits=logits).sample().item())
             predichos.append(float(valor.item()))
             motoras.append(h[0, politica.motor].cpu().numpy().copy())
