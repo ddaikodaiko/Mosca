@@ -2,6 +2,10 @@
 #   python train_rl.py --config configs/mario_nes.yaml
 # La ROM viene en el paquete gym-super-mario-bros; no se descarga nada.
 device: auto
+# Instantanea para reanudar cada N ITERACIONES, en <modelo>_s<semilla>.reanudar.pt. Un
+# corte se retoma sin repetir lo hecho. Ojo: en PPO no es bit a bit —los entornos
+# arrancan de cero al reanudar— y por eso el informe anota cuantas reanudaciones hubo.
+resume_every: 10
 env: nes
 wiring_dir: artifacts/conectoma_4000
 output_dir: artifacts/mario_nes

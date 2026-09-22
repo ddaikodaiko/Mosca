@@ -279,16 +279,17 @@ class Reanudacion:
     estado: dict[str, Any] | None = None
 
     @classmethod
-    def para(cls, cfg: dict[str, Any], nombre: str, semilla: int) -> "Reanudacion":
-        directorio = Path(cfg["output_dir"]) / "checkpoints"
+    def para(cls, cfg: dict[str, Any], nombre: str, semilla: int,
+             subdirectorio: str = "checkpoints") -> "Reanudacion":
+        directorio = Path(cfg["output_dir"]) / subdirectorio if subdirectorio \
+            else Path(cfg["output_dir"])
         directorio.mkdir(parents=True, exist_ok=True)
         ruta = directorio / f"{nombre}_s{semilla}.reanudar.pt"
         cada = int(cfg.get("resume_every", 0))
         estado = None
         if cada > 0 and ruta.is_file():
             estado = torch.load(ruta, map_location="cpu", weights_only=False)
-            print(f"    reanudando desde la fase {estado['fase']}, paso {estado['paso']}"
-                  f" (etapa {estado['etapa']})")
+            print(f"    reanudando: {estado.get('donde', 'paso ' + str(estado.get('paso')))}")
         return cls(ruta=ruta, cada_pasos=cada, estado=estado)
 
     @property
@@ -338,6 +339,7 @@ def instantanea(
         "fase": fase,
         "etapa": etapa,
         "paso": paso,
+        "donde": f"fase {fase}, etapa {etapa}, paso {paso}",
         "modelo": model.state_dict(),
         "optimizador": optimiser.state_dict(),
         "planificador": scheduler.state_dict(),

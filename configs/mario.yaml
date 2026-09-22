@@ -10,6 +10,10 @@
 # La actualizacion se lleva el 80 %: si hay que recortar, se recorta ahi (epochs o
 # n_minibatches), no en la recoleccion.
 device: auto
+# Instantanea para reanudar cada N ITERACIONES, en <modelo>_s<semilla>.reanudar.pt. Un
+# corte se retoma sin repetir lo hecho. Ojo: en PPO no es bit a bit —los entornos
+# arrancan de cero al reanudar— y por eso el informe anota cuantas reanudaciones hubo.
+resume_every: 10
 wiring_dir: artifacts/conectoma_4000
 output_dir: artifacts/mario
 

@@ -41,6 +41,7 @@ from envs.platformer import (
 )
 from models.masked_policy import build_policy
 from models.masked_rnn import Wiring
+from train import Reanudacion
 
 
 @dataclass
@@ -280,9 +281,6 @@ def train_one(
         "obs": torch.as_tensor(envs.reset(), dtype=torch.float32, device=device),
         "h": policy.initial_state(n_envs, device),
     }
-    if cfg.get("normalise_observations", True):
-        muestra = muestrea_observaciones(envs, state, int(cfg.get("normalise_samples", 2000)))
-        policy.fit_feature_statistics(muestra)
     total_iterations = int(ppo["iterations"])
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimiser, lambda it: 1.0 - it / max(total_iterations, 1)
@@ -295,6 +293,30 @@ def train_one(
     out_dir.mkdir(parents=True, exist_ok=True)
     checkpoint = out_dir / f"{name}_s{seed}.pt"
 
+    # Reanudacion. A diferencia de la de train.py, esta NO es bit a bit: los entornos no
+    # se pueden serializar (el emulador lleva su propia RAM), asi que al reanudar arrancan
+    # de cero y la recoleccion ya no es la que habria salido de un tiron. Lo que si se
+    # conserva es todo lo aprendido: pesos, optimizador, planificador, contador de
+    # iteraciones e historial. El numero de reanudaciones se guarda en el informe, porque
+    # un entrenamiento reanudado no es reproducible desde la semilla y eso hay que decirlo.
+    reanuda = Reanudacion.para(cfg, name, seed, subdirectorio="")
+    primera_iteracion, reanudaciones = 0, 0
+    if reanuda.estado is not None:
+        estado = reanuda.estado
+        policy.load_state_dict(estado["modelo"])
+        optimiser.load_state_dict(estado["optimizador"])
+        scheduler.load_state_dict(estado["planificador"])
+        generator.set_state(estado["generador"])
+        history = list(estado["historia"])
+        best = dict(estado["mejor"])
+        primera_iteracion = int(estado["iteracion"]) + 1
+        reanudaciones = int(estado["reanudaciones"]) + 1
+    elif cfg.get("normalise_observations", True):
+        # Las estadisticas se miden UNA vez, antes de entrenar; al reanudar vienen ya
+        # dentro del checkpoint y volver a medirlas cambiaria el modelo a mitad.
+        muestra = muestrea_observaciones(envs, state, int(cfg.get("normalise_samples", 2000)))
+        policy.fit_feature_statistics(muestra)
+
     def guarda() -> None:
         """Se guarda en cada evaluacion, no solo al final: un entrenamiento de horas
         tiene que poder mirarse mientras corre, y cortarse sin perderlo todo."""
@@ -303,7 +325,7 @@ def train_one(
              "state_dict": policy.state_dict()}, checkpoint,
         )
     print(f"\n[{name} s{seed}] {policy.n_neurons} neuronas, {n_parameters:,} parametros")
-    for iteration in range(total_iterations):
+    for iteration in range(primera_iteracion, total_iterations):
         t_iteracion = time.time()
         batch, statistics = collect(
             policy, envs, state, int(ppo["rollout_steps"]),
@@ -341,8 +363,17 @@ def train_one(
                 f"  H {losses['entropia']:.3f}"
             )
         history.append(entry)
+        if reanuda.toca_guardar(iteration + 1):
+            reanuda.guarda(
+                donde=f"iteracion {iteration + 1} de {total_iterations}",
+                iteracion=iteration, modelo=policy.state_dict(),
+                optimizador=optimiser.state_dict(), planificador=scheduler.state_dict(),
+                generador=generator.get_state(), historia=history, mejor=best,
+                reanudaciones=reanudaciones,
+            )
 
     guarda()
+    reanuda.termina()
     episodios_test = int(cfg.get("test_episodes", 32))
     test = evaluate(policy, cfg, "test", episodios_test, device)
     test_muestreada = evaluate(policy, cfg, "test", episodios_test, device, sample=True)
@@ -352,6 +383,9 @@ def train_one(
         "neuronas": int(policy.n_neurons),
         "parametros": int(n_parameters),
         "segundos": time.time() - started,
+        # Un entrenamiento reanudado no se puede reproducir desde la semilla: los entornos
+        # arrancan de cero en cada reanudacion. Queda escrito en el informe.
+        "reanudaciones": reanudaciones,
         "mejor_val": best,
         "test": test,
         "test_muestreada": test_muestreada,

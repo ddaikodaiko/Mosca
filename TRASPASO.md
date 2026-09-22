@@ -184,9 +184,13 @@ o le das a Ctrl-C, vuelves a lanzar el mismo comando y sigue donde estaba, con l
 pesos que si no hubiera parado (hay un test que lo compara bit a bit). Al terminar bien, la
 instantánea se borra sola. Así que el PC puede reiniciarse a mitad de la tanda sin drama.
 
-Esto vale para fluidos. **`train_rl.py` (Mario) sigue sin reanudación**: guarda la política
-en cada evaluación, pero no el optimizador ni el estado de los entornos, así que un corte
-allí obliga a relanzar ese entrenamiento entero.
+**`train_rl.py` (Mario) también se reanuda**, cada `resume_every` iteraciones, pero con una
+promesa más débil y conviene saberlo: los entornos no se pueden serializar —el emulador
+lleva su propia RAM— así que al reanudar arrancan de cero y la recolección ya no es la que
+habría salido de un tirón. Lo aprendido sobrevive entero (pesos, optimizador, planificador,
+contador e historial), pero **un entrenamiento reanudado no se reproduce desde la semilla**,
+y por eso el informe anota `reanudaciones`. Si un número tiene que ser reproducible, se
+relanza de cero y se deja terminar.
 
 A mano es lo mismo, un trozo cada vez; cada uno escribe su propio informe sin pisar los
 otros:

@@ -2,6 +2,10 @@
 # aprende algo, no para responder a la pregunta: 500 neuronas y niveles cortos.
 #   python train_rl.py --config configs/mario_proto.yaml --model mosca --seed 0
 device: auto
+# Instantanea para reanudar cada N ITERACIONES, en <modelo>_s<semilla>.reanudar.pt. Un
+# corte se retoma sin repetir lo hecho. Ojo: en PPO no es bit a bit —los entornos
+# arrancan de cero al reanudar— y por eso el informe anota cuantas reanudaciones hubo.
+resume_every: 20
 wiring_dir: artifacts/conectoma_500_proto
 output_dir: artifacts/mario_proto
 

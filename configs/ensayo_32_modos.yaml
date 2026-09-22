@@ -1,4 +1,8 @@
 # CRIBADO DEL CODIFICADOR (paso 3): 128 modos en vez de 64, igual para todos.
+# NO CORRIDO, y con lo medido el 22-09-2026 probablemente ya no toca: la condicion que se
+# puso aqui abajo (que los nucleos aprendan con 64 modos) no se cumple —la mosca le gana al
+# control sin_nucleo por 0,0004 y pierde en despliegue—, asi que subir el techo del
+# codificador no arregla nada. Se deja disponible, no pendiente.
 # Techo medido con la fisica exacta a 32x32: 64 modos -> error a 1 paso 0,0861 y 26 % de la
 # energia del incremento; 128 modos -> 0,0663 y 56 %. Solo tiene sentido si el ensayo largo
 # muestra que los nucleos aprenden: si no aprenden con 64, subir el techo no cambia nada.

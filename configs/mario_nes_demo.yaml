@@ -7,6 +7,10 @@
 # para comparar cableados. La comparacion va en configs/mario_nes.yaml, con niveles de
 # entrenamiento y de prueba disjuntos.
 device: auto
+# Instantanea para reanudar cada N ITERACIONES, en <modelo>_s<semilla>.reanudar.pt. Un
+# corte se retoma sin repetir lo hecho. Ojo: en PPO no es bit a bit —los entornos
+# arrancan de cero al reanudar— y por eso el informe anota cuantas reanudaciones hubo.
+resume_every: 10
 env: nes
 wiring_dir: artifacts/conectoma_500_proto
 output_dir: artifacts/mario_nes_demo
