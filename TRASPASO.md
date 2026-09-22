@@ -48,10 +48,17 @@ reproducible con el mismo `batch_size`**, que forma parte del contrato y se regi
 `meta.json` (ver la nota de la fase 1 en RESULTADOS.md).
 
 ```bash
-python -m data.simulate_ns --config configs/ns_64.yaml     # ~13 min de CPU; menos en GPU
+python -m data.simulate_ns --config configs/ns_64.yaml     # ~13 min de CPU
 ```
 
 Semillas: train 1000-1199, val 2000-2039, test 3000-3039. Disjuntas por construcción.
+
+**Ojo con dar por hecho que en GPU irá más rápido.** El simulador trabaja en `float64`
+(`simulation.precision`, y ahí se queda: es lo que da la deriva de energía del contrato), y
+una tarjeta de consumo como la 3060 Ti tiene el `float64` capado a una fracción del
+`float32`. Puede salir más lenta que la CPU. Son 13 minutos: se lanza tal cual, y si va
+peor, `--device cpu` y listo. Lo que **no** se debe hacer es generar unos splits en GPU y
+otros en CPU: el dispositivo cambia los bits y el `meta.json` guarda cuál se usó.
 
 ## 3. Lo que SÍ hay que copiar (menos de 3 MB)
 
@@ -63,8 +70,14 @@ artifacts/conectoma_4000/stats.json
 artifacts/conectoma_4000/controls_stats.json
 ```
 
+Son **1,7 MB en total**: caben en cualquier sitio.
+
 Se pueden regenerar con los tres comandos de abajo (la semilla está en el YAML, así que
-sale el mismo subgrafo), pero copiarlos evita volver a bajar los 104 MB del conectoma:
+sale el mismo subgrafo), pero copiarlos evita volver a bajar los 104 MB del conectoma.
+Comprobado el 22-09-2026: las dos descargas siguen vivas y con el tamaño exacto que el
+verificador espera (100.804.642 y 3.327.347 bytes), así que regenerar desde cero funciona.
+El descargador ya prueba primero el `raw` de GitHub, que es el que sirve; el de LFS
+devuelve 404 desde hace tiempo y por eso va el segundo.
 
 ```bash
 python -m data.download_flywire
