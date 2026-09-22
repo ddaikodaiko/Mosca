@@ -671,3 +671,25 @@ No cabe: la fase 6 real va a GPU, igual que la 4 y la 5. La actualizacion se lle
   para separar cableados esta **por comprobar**. Si los seis modelos se quedan pegados a
   la politica degenerada, la fase 6 tampoco tendra resolucion para responder a la
   pregunta, igual que pasa con el empate de la fase 4.
+
+## 22-09-2026: coste medido antes de entrenar, no estimado despues
+
+`benchmark.py` mide por modelo el segundo por paso de la fase A, el de la fase B al
+horizonte mas largo del curriculo y el pico de memoria de GPU, y extrapola las horas por
+semilla. Corre sin datos generados (campos aleatorios de la misma forma, marcado como tal
+en el informe) porque lo que fija el tiempo por paso son las formas, no el contenido.
+
+Referencia de este portatil (CPU, 64x64, N=4.000, `configs/entrenamiento_64.yaml`, datos
+sinteticos, 2 pasos cronometrados tras 3 de calentamiento):
+
+| modelo | parametros | s/paso fase A | s/paso fase B (h=20) | horas por semilla |
+|---|---|---|---|---|
+| mosca | 311.328 | 0,351 | 6,23 | 12,33 |
+
+Es la cota optimista: no cuenta evaluaciones periodicas ni carga de datos, y la parada
+temprana puede recortarla. Confirma la regla 6 por si hacia falta: los 18 entrenamientos
+de la fase 4 no caben en esta maquina ni de lejos.
+
+`train_rl.py` acepta ahora `--iterations` (escribe en `medicion_<n>it/`, sin pisar los
+checkpoints) y cronometra las primeras iteraciones separando recoleccion y actualizacion.
+Con `eval_every: 50`, antes la primera senal de coste tardaba una hora en aparecer.

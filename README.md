@@ -30,7 +30,7 @@ Written down before seeing any result ([design, §3](diseno_mosca_navier_stokes.
 We expect **H0 or H1**, and a Fourier Neural Operator (FNO) to beat every wired network.
 A null result is a valid result.
 
-## The six models
+## The seven models
 
 Only the connectivity mask changes between the wired models; encoder, decoder, training
 recipe and parameter budget are shared.
@@ -41,12 +41,36 @@ recipe and parameter budget are shared.
 | `aleatorio` | Erdős–Rényi, same density and inhibitory fraction |
 | `recableado` | Fly graph with edges shuffled, **degrees preserved exactly** |
 | `denso` | All-to-all, fewer neurons, same number of trainable weights |
+| `sin_nucleo` | Same neurons, signs and ports as the fly, **zero connections** (control) |
 | `fno` | Fourier Neural Operator (upper reference) |
 | `persistencia` | Predicts "nothing changes" (lower reference) |
 
 Pipeline: vorticity field → FFT → lowest Fourier modes → *sensory* neurons (highest
 out-degree) → masked recurrent core (4 internal steps) → *motor* neurons (highest in-degree)
 → modes → inverse FFT → **increment** added to the field.
+
+`sin_nucleo` is the control that says whether there is anything to discuss: if the fly does
+not beat it, what it predicts does not come from its wiring but from the encoder and decoder
+every model shares.
+
+## The second task: Mario
+
+The same wired core playing instead of predicting ([design, §13](diseno_mosca_navier_stokes.md)).
+Two environments with **the same 302-number symbolic observation**, so the policy is
+identical in both: a hand-written platformer with procedural levels, and the real NES Super
+Mario Bros through an emulator, reading the tile map out of the RAM. The anatomical viewer
+(`visor_nes.py`) puts the game on one side and, on the other, the 139,000 connectome neurons
+with the subgraph lighting up on top, at their real FlyWire coordinates.
+
+<p align="center">
+  <img src="docs/media/mario_referencias.gif" alt="The four reference policies playing the platformer" width="100%">
+</p>
+
+Every number is read against four reference policies (random, always right, constant jump,
+hand-written heuristic) or it is not read at all: **PPO falls into the degenerate policy on
+its own** — always jumping right already covers 38 % of the level. In the laptop rehearsal
+the six models tie and none beats it. This is measured infrastructure, not a result about
+wiring.
 
 ## Status
 
@@ -80,13 +104,26 @@ python -m data.download_flywire           # connectome, 105 MB
 python -m data.download_annotations       # neuron positions for the viewer, 32 MB
 python -m data.simulate_ns   --config configs/ns_32_proto.yaml
 python -m connectome.subgraph --config configs/conectoma_500_proto.yaml
+python benchmark.py --config configs/ensayo_32.yaml          # measured cost before launching
 python train.py    --config configs/ensayo_32.yaml
 python evaluate.py --config configs/ensayo_32.yaml
 python visor.py    --config configs/ensayo_32.yaml --models mosca aleatorio   # interactive HTML
 python video.py    --config configs/ensayo_32.yaml --models mosca              # the video above
 ```
 
+And the Mario task:
+
+```bash
+pip install nes-py gym-super-mario-bros        # only for the NES environment
+python train_rl.py    --config configs/mario_proto.yaml        # own environment, prototype
+python evaluate_rl.py --config configs/mario.yaml --muestrea --repeticiones 6
+python visor_nes.py   --config configs/mario_nes_demo.yaml     # game + anatomical brain
+```
+
 Everything is configured by YAML; seeds and configs are written into every output.
+
+The real experiment does not fit on a laptop: the full recipe for the GPU machine is in
+[`TRASPASO.md`](TRASPASO.md) (Spanish).
 
 ## Data and credits
 

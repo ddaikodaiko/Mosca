@@ -304,13 +304,27 @@ def train_one(
         )
     print(f"\n[{name} s{seed}] {policy.n_neurons} neuronas, {n_parameters:,} parametros")
     for iteration in range(total_iterations):
+        t_iteracion = time.time()
         batch, statistics = collect(
             policy, envs, state, int(ppo["rollout_steps"]),
             float(ppo["gamma"]), float(ppo["gae_lambda"]), device,
         )
+        t_recoleccion = time.time() - t_iteracion
+        t_actualizacion = time.time()
         losses = ppo_update(policy, optimiser, batch, ppo, generator)
+        t_actualizacion = time.time() - t_actualizacion
         scheduler.step()
-        entry = {"iteracion": iteration, **statistics, **losses}
+        if iteration < int(cfg.get("time_first_iterations", 3)):
+            # Las primeras iteraciones cronometradas: con eval_every alto, si no, la
+            # primera senal de cuanto cuesta esto tarda una hora en aparecer. Sirve para
+            # decidir `iterations` en una maquina nueva antes de lanzar la tanda entera.
+            total = t_recoleccion + t_actualizacion
+            print(f"  iter {iteration + 1:4d}  {total:.1f} s"
+                  f"  (recoleccion {t_recoleccion:.1f} s, actualizacion {t_actualizacion:.1f} s)"
+                  f"  -> {total * total_iterations / 3600:.1f} h las {total_iterations}")
+        entry = {"iteracion": iteration, **statistics, **losses,
+                 "segundos_recoleccion": round(t_recoleccion, 2),
+                 "segundos_actualizacion": round(t_actualizacion, 2)}
         if (iteration + 1) % int(cfg.get("eval_every", 10)) == 0 or iteration == total_iterations - 1:
             episodios = int(cfg.get("eval_episodes", 16))
             entry["val"] = evaluate(policy, cfg, "val", episodios, device)
@@ -356,9 +370,14 @@ def main() -> int:
     parser.add_argument("--model", default=None, help="entrenar solo este modelo")
     parser.add_argument("--seed", default=None, type=int)
     parser.add_argument("--device", default=None)
+    parser.add_argument("--iterations", default=None, type=int,
+                        help="acorta ppo.iterations; para medir el coste en una maquina nueva")
     args = parser.parse_args()
 
     cfg = yaml.safe_load(args.config.read_text())
+    if args.iterations is not None:
+        cfg["ppo"]["iterations"] = args.iterations
+        cfg["output_dir"] = str(Path(cfg["output_dir"]) / f"medicion_{args.iterations}it")
     device = resolve_device(args.device or cfg.get("device", "auto"))
     print(f"dispositivo: {device}")
     wirings = load_wirings(cfg)

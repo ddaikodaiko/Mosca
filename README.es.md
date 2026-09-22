@@ -31,7 +31,7 @@ Escrita antes de ver ningún resultado ([diseño, §3](diseno_mosca_navier_stoke
 Esperamos **H0 o H1**, y que un Fourier Neural Operator (FNO) gane a todas las redes
 cableadas. Un resultado nulo es un resultado válido.
 
-## Los seis modelos
+## Los siete modelos
 
 Entre los modelos cableados solo cambia la máscara de conectividad; codificador,
 decodificador, receta de entrenamiento y presupuesto de parámetros son comunes.
@@ -42,12 +42,35 @@ decodificador, receta de entrenamiento y presupuesto de parámetros son comunes.
 | `aleatorio` | Erdős–Rényi, misma densidad y fracción inhibidora |
 | `recableado` | Grafo de la mosca con aristas barajadas, **grados conservados exactamente** |
 | `denso` | Todas contra todas, menos neuronas, mismo número de pesos entrenables |
+| `sin_nucleo` | Mismas neuronas, signos y puertos que la mosca, **cero conexiones** (control) |
 | `fno` | Fourier Neural Operator (referencia superior) |
 | `persistencia` | Predice "no cambia nada" (referencia inferior) |
 
 Recorrido: campo de vorticidad → FFT → modos de Fourier más bajos → neuronas *sensoriales*
 (mayor grado de salida) → núcleo recurrente con máscara (4 subpasos internos) → neuronas
 *motoras* (mayor grado de entrada) → modos → FFT inversa → **incremento** que se suma al campo.
+
+`sin_nucleo` es el control que dice si hay algo que discutir: si la mosca no le gana, lo que
+predice no sale de su cableado, sino del codificador y el decodificador que comparten todos.
+
+## La segunda tarea: Mario
+
+El mismo núcleo cableado, jugando en vez de prediciendo ([diseño, §13](diseno_mosca_navier_stokes.md)).
+Dos entornos con **la misma observación simbólica de 302 números**, así que la política es la
+misma en los dos: un motor de plataformas propio con niveles procedurales, y el Super Mario
+Bros de NES real con emulador, leyendo el mapa de casillas de la RAM. El visor anatómico
+(`visor_nes.py`) pone el juego a un lado y, al otro, las 139.000 neuronas del conectoma con
+las del subgrafo encendiéndose encima, en sus coordenadas reales de FlyWire.
+
+<p align="center">
+  <img src="docs/media/mario_referencias.gif" alt="Las cuatro políticas de referencia jugando en el entorno de plataformas" width="100%">
+</p>
+
+Toda cifra se lee contra cuatro líneas de referencia (azar, siempre a la derecha, salto
+constante, heurística escrita a mano) o no se lee: **PPO cae solo en la política degenerada**
+de saltar siempre a la derecha, que ya recorre el 38 % del nivel. En el ensayo de portátil
+los seis modelos empatan y ninguno le gana a esa política. Es infraestructura medida, no un
+resultado sobre el cableado.
 
 ## Estado
 
@@ -82,13 +105,26 @@ python -m data.download_flywire           # conectoma, 105 MB
 python -m data.download_annotations       # posiciones de las neuronas para el visor, 32 MB
 python -m data.simulate_ns   --config configs/ns_32_proto.yaml
 python -m connectome.subgraph --config configs/conectoma_500_proto.yaml
+python benchmark.py --config configs/ensayo_32.yaml          # coste medido antes de lanzar
 python train.py    --config configs/ensayo_32.yaml
 python evaluate.py --config configs/ensayo_32.yaml
 python visor.py    --config configs/ensayo_32.yaml --models mosca aleatorio   # HTML interactivo
 python video.py    --config configs/ensayo_32.yaml --models mosca              # el vídeo de arriba
 ```
 
+Y la tarea de Mario:
+
+```bash
+pip install nes-py gym-super-mario-bros        # solo para el entorno de NES
+python train_rl.py    --config configs/mario_proto.yaml        # entorno propio, prototipo
+python evaluate_rl.py --config configs/mario.yaml --muestrea --repeticiones 6
+python visor_nes.py   --config configs/mario_nes_demo.yaml     # juego + cerebro anatómico
+```
+
 Todo se configura por YAML; las semillas y la configuración se escriben en cada salida.
+
+El experimento real no cabe en un portátil: la receta completa para la máquina con GPU está
+en [`TRASPASO.md`](TRASPASO.md).
 
 ## Datos y créditos
 
