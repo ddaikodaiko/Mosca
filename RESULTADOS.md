@@ -945,3 +945,54 @@ Afecta al experimento de la fase 6 en GPU: los 18 entrenamientos se comparan con
 funcion. Los numeros absolutos se mueven un poco respecto a evaluaciones anteriores (cambia
 que sorteo le toca a cada partida), asi que las cifras de la fase 6 anteriores al
 22-09-2026 no son comparables una a una con las nuevas; las conclusiones no cambian.
+
+## 22-09-2026: el critico estaba ciego, y eso explica el estancamiento
+
+Antes de echarle mas iteraciones a la demo, se miro por dentro el entrenamiento de 300.
+PPO mejora la politica siguiendo la **ventaja** = retorno menos valor predicho, asi que si
+el critico no explica el retorno, la ventaja es ruido y da igual cuanto se entrene.
+
+`diagnostico_rl.py` juega episodios completos y compara el valor predicho en cada paso con
+el retorno descontado real desde ese paso:
+
+| semilla | pasos | retorno real | valor predicho |
+|---|---|---|---|
+| 101 | 69 | 42,3 | **27,7** |
+| 102 | 29 | 17,7 | **27,7** |
+| 103 | 257 | 68,3 | **27,7** |
+| 104 | 31 | 18,0 | **27,7** |
+
+**Varianza explicada +0,10** (y +0,14 / +0,18 en otras tiradas; +0,08 en el checkpoint de
+190). Desviacion del valor 5,3 contra 22,6 del retorno. El critico predice practicamente
+una constante.
+
+Concuerda con lo que ya decian las curvas del entrenamiento: KL por actualizacion de 2e-5
+a 9e-5 (la politica casi no se mueve), perdida de politica de 1e-4, y perdida de valor
+estancada en 42 con recompensas medias de 80. El progreso se aplana en la iteracion 150.
+
+### No es que la lectura este muerta
+
+Primera hipotesis descartada: que las motoras esten saturadas y no lleven informacion. Se
+midio la actividad de las 56 que leen el actor y el critico a lo largo de 298 pasos:
+desviacion mediana entre pasos **0,079**, maxima 0,872, solo **6 de 56** practicamente
+constantes, y **7,8 %** de lecturas saturadas. Hay senal; el critico no la usa.
+
+### Es la escala del objetivo
+
+El critico es un `Linear` sobre neuronas acotadas por tanh que tiene que producir valores
+de 30-60. Para eso necesita pesos enormes, y con lr 3e-4 y 3.600 actualizaciones no llega.
+`NormalizadorDeRetorno` (en `models/masked_policy.py`) hace que aprenda en escala
+normalizada y desnormaliza donde hacen falta unidades de recompensa, que es el calculo de
+GAE. Medias moviles, viajan en el checkpoint, y con `ppo.normalise_returns: false` —el
+valor por defecto— es la identidad exacta: nada de lo entrenado hasta ahora cambia.
+
+Bajar `reward_scale` no servia de atajo: `death_penalty` se resta **despues** de escalar,
+asi que habria cambiado la tarea y no solo la escala.
+
+### Por que importa mas alla de la demo
+
+Si el critico esta ciego, lo esta en los seis modelos por igual, y entonces **la fase 6 no
+tiene resolucion por construccion**: se estaria comparando el ruido de seis cableados. Es
+el mismo cuadro que en fluidos —donde el empate venia de que ninguno aprende— pero por una
+causa distinta y, esta si, arreglable. Por eso la varianza explicada del critico pasa a ser
+una **puerta** antes de lanzar los 18 entrenamientos en GPU.

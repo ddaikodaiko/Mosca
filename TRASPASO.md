@@ -228,6 +228,19 @@ scripts/tanda.sh      configs/mario_nes.yaml mario            # NES con emulador
 python evaluate_rl.py --config configs/mario_nes.yaml --muestrea --repeticiones 6
 ```
 
+### Antes de los 18: mirar si el crítico ve algo
+
+```bash
+python train_rl.py      --config configs/mario_nes.yaml --model mosca --seed 0
+python diagnostico_rl.py artifacts/mario_nes/mosca_s0.pt --config configs/mario_nes.yaml
+```
+
+Imprime la **varianza explicada** del crítico. Si sale por debajo de 0,3, las ventajas son
+ruido y los 18 entrenamientos medirían el ruido de seis cableados, no los cableados. En la
+demo salía **0,10**, con el crítico prediciendo 27,7 para cualquier estado. El arreglo ya
+está implementado (`ppo.normalise_returns`), y en ese caso hay que activarlo **en los seis
+modelos por igual** y volver a medir antes de lanzar la tanda.
+
 Tres cosas que no se pueden saltar al leer estos números:
 
 - **Las cuatro líneas de referencia** (azar, siempre derecha, salto constante 0,381,
