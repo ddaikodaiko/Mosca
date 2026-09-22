@@ -180,6 +180,9 @@ def main() -> int:
                         help="politica muestreada en vez de codiciosa")
     parser.add_argument("--repeticiones", type=int, default=1,
                         help="partidas por nivel; con politica muestreada hace falta mas de una")
+    parser.add_argument("--checkpoint", type=Path, default=None, action="append",
+                        help="evaluar estos checkpoints sueltos en vez de los del "
+                             "output_dir; se puede repetir para comparar versiones")
     parser.add_argument("--semilla", type=int, default=0,
                         help="semilla del muestreo, para que la evaluacion sea reproducible")
     args = parser.parse_args()
@@ -201,10 +204,20 @@ def main() -> int:
 
     series: dict[str, dict[str, np.ndarray]] = referencias(cfg, semillas, semilla_azar=0)
     wirings = load_wirings(cfg)
-    for name in cfg["models"]:
+    # Con --checkpoint se comparan versiones de un mismo modelo (por ejemplo el mismo
+    # entrenamiento a 300 y a 900 iteraciones) contra las MISMAS lineas de referencia y
+    # con la misma semilla de muestreo. Cada checkpoint entra como una fila mas, con el
+    # nombre del fichero, asi que la tabla y los contrastes salen igual.
+    if args.checkpoint:
+        a_evaluar = [(ruta.stem, [ruta]) for ruta in args.checkpoint]
+    else:
+        a_evaluar = [
+            (name, [out_dir / f"{name}_s{seed}.pt" for seed in cfg["seeds"]])
+            for name in cfg["models"]
+        ]
+    for name, rutas in a_evaluar:
         por_semilla = []
-        for seed in cfg["seeds"]:
-            ruta = out_dir / f"{name}_s{seed}.pt"
+        for ruta in rutas:
             if not ruta.exists():
                 continue
             politica = carga_politica(ruta, cfg, wirings, device)
@@ -217,7 +230,7 @@ def main() -> int:
             por_semilla.append({
                 metrica: np.mean([p[metrica] for p in partidas], axis=0) for metrica in METRICAS
             })
-            print(f"  {name} s{seed}: progreso {por_semilla[-1]['progreso'].mean():.3f}")
+            print(f"  {ruta.stem}: progreso {por_semilla[-1]['progreso'].mean():.3f}")
         if not por_semilla:
             print(f"  {name}: sin checkpoints en {out_dir}")
             continue
@@ -243,9 +256,16 @@ def main() -> int:
     # Contra "azar" tambien: un modelo puede ganarle a la politica degenerada y aun asi
     # no distinguirse de apretar botones al azar, que es lo que pasa en el NES a 190
     # iteraciones. Sin este contraste, el primer resultado se lee como si fuera bueno.
-    for a, b in (("mosca", "aleatorio"), ("mosca", "recableado"), ("mosca", "salto_cte"),
-                 ("mosca", "azar"), ("mosca", "sin_nucleo"), ("mosca", "mlp"),
-                 ("mosca", "denso")):
+    parejas = [("mosca", "aleatorio"), ("mosca", "recableado"), ("mosca", "salto_cte"),
+               ("mosca", "azar"), ("mosca", "sin_nucleo"), ("mosca", "mlp"),
+               ("mosca", "denso")]
+    if args.checkpoint:
+        # Comparando versiones: cada una contra las dos lineas que deciden, y las demas
+        # contra la primera, que es la referencia de "lo que habia antes".
+        nombres = [ruta.stem for ruta in args.checkpoint]
+        parejas = [(n, linea) for n in nombres for linea in ("salto_cte", "azar")]
+        parejas += [(n, nombres[0]) for n in nombres[1:]]
+    for a, b in parejas:
         if a in series and b in series:
             contrastes[f"{a}_vs_{b}"] = {
                 metrica: prueba_de_permutacion(
@@ -254,18 +274,23 @@ def main() -> int:
                 for metrica in ("progreso", "meta")
             }
 
-    print("\nmodelo            progreso    meta")
+    ancho = max((len(n) for n in resumen), default=6)
+    print(f"\n{'modelo':<{ancho + 2}}  progreso    meta")
     for nombre, valores in resumen.items():
-        print(f"  {nombre:<16} {valores['progreso']['media']:.3f}     {valores['meta']['media']:.3f}")
+        print(f"  {nombre:<{ancho}} {valores['progreso']['media']:.3f}     "
+              f"{valores['meta']['media']:.3f}")
     for clave, prueba in contrastes.items():
         print(f"  {clave}: progreso dif {prueba['progreso']['diferencia_media']:+.4f}"
               f"  p = {prueba['progreso']['p']:.4f}")
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    destino = out_dir / "rl_evaluacion.json"
+    # Con checkpoints sueltos no se pisa el informe de la evaluacion normal.
+    destino = out_dir / ("rl_evaluacion_checkpoints.json" if args.checkpoint
+                         else "rl_evaluacion.json")
     destino.write_text(json.dumps(
         {"config": cfg, "n_niveles": n_levels, "repeticiones": args.repeticiones,
          "muestreada": bool(args.muestrea), "semilla": args.semilla,
+         "checkpoints": [str(r) for r in (args.checkpoint or [])],
          "resumen": resumen, "contrastes": contrastes},
         indent=2, ensure_ascii=False,
     ))
