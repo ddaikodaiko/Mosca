@@ -1,4 +1,4 @@
-# Fase 4 - configuracion REAL, para el PC con GPU. 6 modelos x 3 semillas.
+# Fase 4 - configuracion REAL, para el PC con GPU. 7 modelos x 3 semillas.
 #   python train.py --config configs/entrenamiento_64.yaml
 device: auto
 data_dir: artifacts/ns64
@@ -37,10 +37,12 @@ phase_b:
   eval_every: 100
   patience: 8
 
-# Simetrias exactas del sistema: traslacion libre en x, y en y por periodos del forzado.
+# Simetrias exactas del sistema: traslacion libre en x (dim -2), y en y (dim -1, eje del
+# forzado) solo por periodos del forzado. Ejes corregidos el 16-09-2026.
 augment:
   enabled: true
   forcing_wavenumber: 4
+  continuous_x: false      # PENDIENTE: se decide con el cribado de configs/ensayo_32_largo.yaml
 
 evaluation:
   rollout_steps: 50
@@ -48,5 +50,7 @@ evaluation:
   permutations: 10000
 
 eval_rollouts: [10, 50]
-models: [persistencia, mosca, aleatorio, recableado, denso, fno]
+# sin_nucleo: mismas neuronas y puertos que la mosca, cero conexiones. Sin ganarle, no hay
+# afirmacion posible sobre el cableado.
+models: [persistencia, mosca, aleatorio, recableado, denso, sin_nucleo, fno]
 seeds: [0, 1, 2]

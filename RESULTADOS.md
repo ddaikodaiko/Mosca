@@ -522,3 +522,152 @@ en todos; medido tras el cambio: 92/256 en los cuatro. `denso` construye, propag
 retropropaga con gradiente finito y despliega a 64x64. `pytest -q`: **59 pasan**.
 
 Los resultados del prototipo de la fase 4 usaban puertos disjuntos: quedan obsoletos.
+
+---
+
+## 16-09-2026: por que el nucleo no aprendia
+
+Todas las sondas son baratas (minutos de CPU), en espacio de caracteristicas o con el
+simulador exacto. Datos: `artifacts/ns32` (32x32, 64 modos) y `artifacts/ns64_validacion`.
+
+### 1. La senal tiene camino
+
+Distancia en saltos de la sensorial mas cercana a cada motora: **mediana 1, maximo 1** en
+mosca, aleatorio y recableado, a N=500 y a N=4.000 (maximo 2 en el aleatorio de 4.000).
+Cuatro subpasos internos sobran. Hipotesis de "la senal no cruza el grafo": descartada.
+
+### 2. Actividad por papel (visor, mosca s0, antes del arreglo del aumento)
+
+|h| medio: sensoriales 0,59, compartidas 0,11, motoras **0,013**, interior 0,032
+(aleatorio: 0,52 / 0,10 / 0,032 / 0,094). La lectura esta casi apagada.
+
+### 3. La tarea es resoluble con lo que ve el codificador
+
+Fisica exacta integrando solo la proyeccion del campo a los modos del codificador, y
+proyectando el incremento resultante, frente al incremento real proyectado:
+
+| malla | modos | energia de Delta-omega en esos modos | R2 del incremento (fisica) | error 1 paso: persistencia / techo / fisica |
+|---|---|---|---|---|
+| 32 | 64 | 26,0 % | 0,624 | 0,1001 / 0,0861 / 0,0918 |
+| 32 | 128 | 55,9 % | 0,742 | 0,1001 / 0,0663 / 0,0766 |
+| 64 | 128 | 37,3 % | 0,823 | 0,1054 / 0,0833 / 0,0877 |
+| 64 | 256 | 54,9 % | 0,891 | 0,1054 / 0,0706 / 0,0752 |
+
+"Techo" = incremento real perfecto en esos modos. **A la escala del diseno (64x64, 128
+modos) un nucleo perfecto solo baja el error a 1 paso de 0,105 a 0,083.**
+
+### 4. Sin simetrias, todo memoriza
+
+Sonda: predecir el incremento normalizado de los 64 modos desde los modos actuales.
+
+| modelo | R2 train | R2 val |
+|---|---|---|
+| lineal (minimos cuadrados) | - | 0,024 |
+| MLP 128-512-128 | 0,203 | 0,005 |
+| nucleo mosca, lr 3e-3 | 0,092 | 0,017 |
+
+Con aumento por traslaciones (hecho en fase, correcto) el MLP de 1024 pasa a R2 val
+**0,23-0,33**; sin aumento, -0,56 a -0,97. La palanca es la simetria, no el tamano de datos.
+
+### 5. BUG: el aumento tenia los ejes cambiados
+
+El forzado `sin(4y)` varia en la dimension -1 del array; `Augmenter` aplicaba ahi la
+traslacion libre. Con el simulador: trasladar 1 casilla en dim -2 da error de simetria
+3e-16; en dim -1, 2,5e-2; el `Augmenter` antiguo, **4,0e-2** sobre pares reales. El
+incremento que se aprende es ~10 % del campo. El test antiguo tenia el mismo error de ejes.
+Corregido con un test contra el simulador. Tras el arreglo, la sonda del nucleo con aumento
+correcto: **mosca R2 val 0,095, aleatorio 0,098** (antes 0,017).
+
+Todo lo entrenado con aumento antes del arreglo se descarta (archivado en
+`artifacts/ensayo_32_aumento_roto`).
+
+### 6. Limite de predictibilidad (correlacion con el campo real, test 32x32, 10 trayectorias)
+
+| predictor | t=1 | t=2 | t=4 |
+|---|---|---|---|
+| persistencia | 75,0 % | 53,1 % | 30,3 % |
+| fisica exacta, error inicial 1 % | 100 % | 100 % | 100 % |
+| fisica exacta viendo 64 modos | 91,7 % | 91,7 % | 84,3 % |
+| fisica exacta viendo 128 modos | 96,7 % | 96,7 % | 93,1 % |
+
+En este horizonte el flujo no es lo bastante caotico como para impedir el 100 %: el limite
+lo pone el codificador (~90 %) y, sobre todo, lo que el nucleo consigue aprender.
+
+### 7. Control nuevo y cambios
+
+- `sin_nucleo`: mismas neuronas, signos y puertos que la mosca, cero conexiones. Si la
+  mosca no le gana, lo que predice no sale de su cableado.
+- `augment.continuous_x`: traslacion en fracciones de casilla por fase de Fourier (test
+  contra el simulador < 1e-10; fase en float64).
+
+## Fase 6 — Mario (seccion 13 del diseno), 21-09-2026
+
+Encargo explicito del usuario, adelantado antes de tener la fase 5 real. Lo que hay es
+**infraestructura medida, no un resultado sobre el cableado**: los 18 entrenamientos
+(6 modelos x 3 semillas) no caben en esta maquina.
+
+### 1. El entorno
+
+`envs/platformer.py`: motor de plataformas propio, sin emulador ni ROM, con estado
+simbolico (lo que pide la nota de viabilidad del diseno). Nivel procedural por semilla,
+observacion de 302 numeros (ventana de 11x9 casillas en tres canales — solido, enemigo,
+vacio — mas cinco escalares) y siete acciones que cubren los cuatro botones.
+
+Dos correcciones que hicieron falta para que los niveles tuvieran solucion:
+
+| Problema | Sintoma | Arreglo |
+|---|---|---|
+| Dos huecos seguidos | vanos de hasta 6 casillas; el salto cruza 5,4 | nunca dos huecos seguidos, y el aterrizaje mantiene la altura |
+| `JUMP_VELOCITY = 0,50` | el salto subia 1,84 casillas y los escalones de 2 eran muros | 0,58, que sube 2,52 (medido, no calculado) |
+
+Con eso, la heuristica escrita a mano pasa del 7,5 % de niveles terminados al 55 %.
+
+### 2. Las cuatro lineas de referencia (40 niveles de test, 160 casillas)
+
+| Politica | Progreso | Metas |
+|---|---|---|
+| quieto | 0,016 | 0 % |
+| siempre derecha + carrera | 0,075 | 0 % |
+| **salto constante a la derecha** | **0,381** | **8 %** |
+| heuristica (mira huecos, muros y enemigos) | 0,752 | 55 % |
+
+El salto constante es la linea que importa: **PPO cae en ella sola**. En el prototipo
+(N=500, niveles de 60 casillas, 400 iteraciones) tanto la mosca como el MLP terminan con
+la politica codiciosa emitiendo siempre la misma accion, y el valor de validacion queda
+congelado (mosca: 0,585 en las ocho evaluaciones; MLP: 0,583 -> 0,624, que si se mueve).
+Todo numero de la fase 6 se lee contra estas cuatro lineas o no se lee.
+
+### 3. El modelo
+
+`models/masked_policy.py` reutiliza `MaskedRecurrentCore` sin tocarlo: misma mascara,
+misma ley de Dale, mismo `n_shared` fijo en todos los modelos. Cambian solo el
+codificador (la ventana de casillas) y el decodificador (logits de botones y valor).
+`tests/test_masked_policy.py` repite el test obligatorio contra el bucle de PPO: tras
+entrenar, ninguna sinapsis fuera de la mascara es distinta de cero y ninguna neurona
+cambia de signo.
+
+**El gradiente esta truncado a un paso de entorno.** La h persiste durante el despliegue
+pero entra desacoplada en la actualizacion, asi que el nucleo no puede construir memoria
+de mas de un paso del juego. Es la unica variante que cabe en CPU y condiciona lo que se
+puede afirmar.
+
+### 4. Coste
+
+| | CPU de esta maquina |
+|---|---|
+| recoleccion (32 entornos x 128 pasos, N=4.000) | 11 s |
+| actualizacion PPO (3 epocas x 8 minilotes) | 40 s |
+| iteracion completa | 51 s |
+| 800 iteraciones (3,3 M pasos de entorno) | 11 h por modelo y semilla |
+| los 18 entrenamientos | 8 dias |
+
+No cabe: la fase 6 real va a GPU, igual que la 4 y la 5. La actualizacion se lleva el
+80 % del tiempo, asi que es ahi donde hay que recortar si hace falta.
+
+### 5. Lo que falta
+
+- Medir una iteracion en GPU y ajustar `iterations` antes de lanzar los 18.
+- Que el margen entre el salto constante (0,38) y la heuristica (0,75) sea suficiente
+  para separar cableados esta **por comprobar**. Si los seis modelos se quedan pegados a
+  la politica degenerada, la fase 6 tampoco tendra resolucion para responder a la
+  pregunta, igual que pasa con el empate de la fase 4.

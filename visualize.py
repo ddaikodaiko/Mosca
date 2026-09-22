@@ -1,6 +1,6 @@
 """Visualizador de actividad: el campo de vorticidad y el nucleo encendiendose.
 
-Mitad barata del visualizador: sin coordenadas anatomicas.
+Version sin coordenadas anatomicas (la anatomica es visor.py).
 Cada neurona es un pixel de una rejilla, ordenadas por papel y luego por grado:
 sensoriales exclusivas, compartidas (sensorial y motora a la vez), motoras exclusivas y
 el resto. Sirve de diagnostico: se ve si el nucleo se satura o se apaga.
