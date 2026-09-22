@@ -4,8 +4,13 @@ Lo que no cabe en el portátil y hay que ejecutar en la máquina con la RTX 3060
 código detecta el dispositivo solo (`device: auto` en todos los YAML); no hay nada que
 tocar en el código, solo ejecutar en orden.
 
-Al cierre del 22-09-2026: nada corriendo, `pytest -q` en verde (96 tests), todo el trabajo
+Al cierre del 22-09-2026: nada corriendo, `pytest -q` en verde (107 tests), todo el trabajo
 en la rama `fase-6-mario`.
+
+**Lo unico que quedo a medias** es el control que decide el ultimo sospechoso de la fase 6:
+el **MLP libre con la receta identica** (misma config, `model: mlp`). Se lanzo en el
+portatil y se corto; no hay config ni resultado guardados. Es el primer comando que hay que
+lanzar alli, y esta en el punto 8.
 
 ## 0. Resumen de lo que hay que lanzar allí
 
@@ -24,7 +29,7 @@ del proyecto**; las otras dos son la sección 13 del diseño y van después.
 git clone https://github.com/ddaikodaiko/Mosca && cd Mosca
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt          # la rueda por defecto de torch ya trae CUDA
-pytest -q                                # 96 tests, todos deben pasar
+pytest -q                                # 107 tests, todos deben pasar
 python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
 ```
 
@@ -237,9 +242,16 @@ python diagnostico_rl.py artifacts/mario_nes/mosca_s0.pt --config configs/mario_
 
 Imprime la **varianza explicada** del crítico. Si sale por debajo de 0,3, las ventajas son
 ruido y los 18 entrenamientos medirían el ruido de seis cableados, no los cableados. En la
-demo salía **0,10**, con el crítico prediciendo 27,7 para cualquier estado. El arreglo ya
-está implementado (`ppo.normalise_returns`), y en ese caso hay que activarlo **en los seis
-modelos por igual** y volver a medir antes de lanzar la tanda.
+demo salía **0,10**, con el crítico prediciendo 27,7 para cualquier estado.
+
+**Medido el 22-09-2026: el arreglo funciona y no desbloquea nada.** Con
+`ppo.normalise_returns` la varianza explicada sube a 0,36-0,40, la pérdida de valor cae de
+41,4 a 0,27 y la saturación de las motoras baja del 7,8 % al 3,9 %, pero el KL por
+actualización sigue en 1e-5 y el progreso no se mueve. Así que la puerta antes de los 18 **no
+es solo la varianza explicada**: es que el KL por actualización se despegue de 1e-5. Si el
+crítico ve y la política sigue sin moverse, los 18 entrenamientos medirían seis cableados
+inmóviles. `normalise_returns` se activa igualmente, y **en los seis modelos por igual**,
+porque el crítico ciego era un defecto real.
 
 Tres cosas que no se pueden saltar al leer estos números:
 
@@ -289,17 +301,41 @@ Con eso se actualizan `RESULTADOS.md` y la sección de estado del README.
 
 ## 8. Lo que sigue abierto, por orden de valor
 
-1. **El gradiente de la fase 6 está truncado a un paso de entorno**: la h persiste durante
+**Lo que ya esta descartado con medida** (tabla completa al final de RESULTADOS.md), para no
+volver a gastar GPU en ello: las motoras no estan saturadas; el critico ciego era real, esta
+arreglado con `ppo.normalise_returns` y **no era el freno**; el bonus de entropia no aplasta
+a la politica (con 10x menos, el KL baja todavia mas, a 1e-6); y la politica **si** depende
+de lo que ve (distancia de variacion total al promedio: mediana 0,17, maxima 0,50).
+
+1. **Terminar el control que decide la fase 6: el MLP libre con la receta identica.** Es lo
+   que quedo corriendo y cortado en el portatil, y no hay nada guardado. Mismo config de la
+   demo, `model: mlp`, mismas iteraciones:
+
+   ```bash
+   python train_rl.py       --config configs/mario_nes_demo_critico.yaml --model mlp --seed 0
+   python diagnostico_rl.py artifacts/mario_nes_demo_critico/mlp_s0.pt --config configs/mario_nes_demo_critico.yaml
+   ```
+
+   Lectura: **si el MLP libre tampoco aprende**, el freno esta en la tarea o en como esta
+   planteado PPO, y la fase 6 no tiene resolucion por construccion — no se lanzan los 18.
+   **Si el MLP si aprende**, el freno esta en el nucleo, y el sospechoso que queda es el
+   punto 2.
+2. **El gradiente de la fase 6 está truncado a un paso de entorno**: la h persiste durante
    el despliegue pero entra desacoplada en la actualización, así que el núcleo no puede
-   construir memoria de más de un paso del juego. Es el sospechoso principal de que nada
-   aprenda. Cambiarlo es una desviación del diseño: **hay que consultarlo antes**.
-2. **La saturación por crecimiento de los pesos del codificador** (66 % de las sensoriales
+   construir memoria de más de un paso del juego. Es el único sospechoso que sigue en pie.
+   Cambiarlo es una desviación del diseño: **hay que consultarlo antes**.
+3. **La saturación por crecimiento de los pesos del codificador** (66 % de las sensoriales
    con |impulso| > 2,5 tras 30 iteraciones). Normalizar la entrada, que ya está hecho, no
-   lo arregla; normalizar el impulso sí, y también es desviación del diseño.
-3. **Qué hacer si el núcleo no se despega de la persistencia en la fase 4** (punto 5.1).
-4. **Réplica con cascada de enstrofia resuelta**, solo después de tener el resultado a
+   lo arregla; normalizar el impulso sí, y también es desviación del diseño. Con
+   `normalise_returns` la saturacion de las motoras ya baja al 3,9 %, asi que esto pesa
+   menos que antes.
+4. **Qué hacer si el núcleo no se despega de la persistencia en la fase 4** (punto 5.1).
+5. **Réplica con cascada de enstrofia resuelta**, solo después de tener el resultado a
    64x64: malla >=256, hiperviscosidad y ~2000 modos en el codificador. ~80x en simulación
    y ~15 GB de datos, en los seis modelos por igual.
+
+Nada de esto bloquea la **fase 4**, que es la que responde a la pregunta del proyecto: esa
+se puede lanzar (punto 5) en paralelo a resolver el punto 1.
 
 La demo de NES (`artifacts/mario_nes_demo/mosca_s0.pt`) está reentrenada entera el
 22-09-2026: 300 iteraciones con la normalización de entrada puesta, 52 min de portátil.
