@@ -39,9 +39,12 @@ nes:
 ppo:
   n_envs: 8
   rollout_steps: 128
-  iterations: 300      # ~1,2 M fotogramas de NES; 8,6 s por iteracion medidos en el
-                       # portatil (6 hilos), o sea ~45 min. El intento anterior pedia 600
-                       # y se corto en la 190; ahora hay reanudacion, asi que un corte no
+  iterations: 900      # ~3,6 M fotogramas de NES. 8,6 s por iteracion medidos en el
+                       # portatil (6 hilos): ~2 h 10 min. Con 300 la entropia se quedo
+                       # plana en 1,35 desde la iteracion 180 y el progreso codicioso
+                       # clavado en 0,136; se alarga para ver si eso era el techo o solo
+                       # falta de pasos. El checkpoint de 300 queda al lado como
+                       # mosca_s0_300it.pt para comparar. Hay reanudacion: un corte no
                        # obliga a empezar de cero.
   epochs: 3
   n_minibatches: 4
