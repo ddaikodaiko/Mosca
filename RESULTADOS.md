@@ -687,8 +687,8 @@ sinteticos, 2 pasos cronometrados tras 3 de calentamiento):
 | mosca | 311.328 | 0,351 | 6,23 | 12,33 |
 
 Es la cota optimista: no cuenta evaluaciones periodicas ni carga de datos, y la parada
-temprana puede recortarla. Confirma la regla 6 por si hacia falta: los 18 entrenamientos
-de la fase 4 no caben en esta maquina ni de lejos.
+temprana puede recortarla. Confirma lo que ya se sabia: los 18 entrenamientos de la
+fase 4 no caben en este portatil ni de lejos.
 
 `train_rl.py` acepta ahora `--iterations` (escribe en `medicion_<n>it/`, sin pisar los
 checkpoints) y cronometra las primeras iteraciones separando recoleccion y actualizacion.
