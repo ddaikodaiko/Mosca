@@ -809,3 +809,19 @@ peor acelera en GPU. Si al medir en la 3060 Ti la fase B sigue dominando, la pal
 Nota de honestidad sobre estas cifras: son con 6 de los 12 hilos (el portatil tenia que
 seguir usable) y con datos sinteticos. Valen como reparto entre fases y como orden de
 magnitud, no como record de la maquina.
+
+### La fase 6b a escala real: el emulador manda, no la GPU (22-09-2026)
+
+`configs/mario_nes.yaml` (N=4.000, 16 entornos, despliegue de 128 pasos) no se habia
+ejecutado nunca. Con `--iterations 1` arranca y completa una iteracion: **44,2 s**, de los
+cuales **27,9 s son recoleccion** (63 %) y 16,3 s la actualizacion de PPO. Son 6 hilos.
+
+El reparto se da la vuelta respecto al entorno propio, donde la actualizacion se llevaba el
+80 %: aqui el cuello es el emulador de NES, que corre en CPU y no se acelera con la 3060 Ti.
+Las 800 iteraciones son ~9,8 h por modelo y semilla, ~177 h los 18 entrenamientos, y la GPU
+solo puede morder ese 37 % de la actualizacion. Si hay que acelerar la fase 6b, lo que
+mueve la aguja es mas paralelismo de CPU (mas entornos, o varios procesos), no la tarjeta.
+
+Vale tambien de prueba de humo: la politica cableada con las 4.000 neuronas del conectoma
+corre sobre el Super Mario Bros de verdad, con la observacion simbolica de la RAM, y
+completa recoleccion, GAE, actualizacion, evaluacion y checkpoint.

@@ -212,8 +212,18 @@ Tres cosas que no se pueden saltar al leer estos números:
   `configs/mario_nes_demo.yaml` entrena y mide en 1-1 **a propósito, solo para grabar
   vídeo**, y está marcado como tal.
 
-En PPO la GPU solo acelera la actualización (el 80 % del tiempo en CPU); la recolección va
-en el emulador, que es CPU. La ganancia será menor que en fluidos.
+**La 3060 Ti va a ayudar poco aquí, y conviene saberlo antes.** Medido el 22-09-2026 en
+este portátil con la config real de NES (N=4.000, 16 entornos, 6 hilos): 44,2 s por
+iteración, de los cuales 27,9 s (el 63 %) son recolección en el emulador, que es CPU pura.
+La GPU solo muerde el 37 % restante. Las 800 iteraciones son ~9,8 h por modelo y semilla
+aquí, ~177 h los 18. Si hay que acelerar, lo que mueve la aguja es más paralelismo de CPU
+(subir `ppo.n_envs`, o lanzar varios modelos a la vez), no la tarjeta.
+
+En el entorno propio el reparto es el contrario —la actualización se llevaba el 80 %—
+porque ahí no hay emulador. Esa sí se acelera.
+
+Las dos configs arrancan y completan una iteración entera a escala real; comprobado con
+`--iterations 1`, así que lo que quede por fallar no es la construcción del modelo.
 
 ## 7. Qué traer de vuelta
 
