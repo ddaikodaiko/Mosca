@@ -888,3 +888,38 @@ reproducible, se relanza y se deja terminar.
 El test corta la tercera iteracion, reanuda y comprueba que la historia sale [0,1,2,3] sin
 repetidos, que `reanudaciones` vale 1 y que la instantanea se borra al terminar bien.
 Probado ademas matando el proceso con SIGKILL: retoma en la iteracion que tocaba.
+
+## 22-09-2026: la demo de NES, entrenada entera (300 iteraciones)
+
+El checkpoint que habia se corto en la iteracion 190 de 600 y era anterior a la
+normalizacion de entrada. Reentrenada de cero con la normalizacion puesta, 300 iteraciones
+(**52 min** en el portatil con 6 hilos, 8,6 s por iteracion, 0 reanudaciones).
+
+**Recordatorio de que esto no es el experimento:** entrena y mide en 1-1, el mismo nivel,
+que es justo lo que el diseno prohibe. Sirve para grabar video. La comparacion entre
+cableados va en `configs/mario_nes.yaml`, con niveles disjuntos, y en GPU.
+
+Evaluacion muestreada, 8 niveles x 6 partidas, semilla de muestreo fijada:
+
+| politica | progreso | metas |
+|---|---|---|
+| azar (botones al azar) | 0,233 | 0 % |
+| siempre a la derecha | 0,094 | 0 % |
+| salto constante | 0,098 | 0 % |
+| **mosca (300 it)** | **0,285** | **2,1 %** |
+
+- **vs salto constante: +0,187, p = 0,008.** Le gana.
+- **vs azar: +0,052, p = 0,25.** Sigue **sin distinguirse de apretar botones al azar**.
+
+Contra la version anterior (190 iteraciones, sin normalizar): 0,244 -> 0,285 de progreso,
+y la tasa de metas pasa de 0 % a 2,1 % (alguna partida suelta llega a la bandera). El
+contraste contra el azar mejora de p = 0,68 a p = 0,25, que **sigue sin ser nada**.
+
+Con la politica codiciosa saca 0,136, frente a los 0,098 de antes, que eran exactamente
+los de "saltar siempre". O sea que ha dejado de ser una accion constante, pero poco mas.
+
+En el visor se nota ademas el efecto de la normalizacion: la tira de sensoriales, que antes
+era una franja amarilla uniforme (saturada), ahora tiene rango. Videos en `artifacts/`
+(git-ignored) y un recorte en `docs/media/mosca_juega_nes.gif`. En la partida grabada
+(muestreada, semilla 3) llega al **77,6 %** del nivel; con la codiciosa, al 13,6 %. Una
+partida no es una medida: la medida son los 0,285 de la tabla.

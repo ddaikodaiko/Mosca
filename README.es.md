@@ -66,6 +66,15 @@ las del subgrafo encendiéndose encima, en sus coordenadas reales de FlyWire.
   <img src="docs/media/mario_referencias.gif" alt="Las cuatro políticas de referencia jugando en el entorno de plataformas" width="100%">
 </p>
 
+Y la red cableada como la mosca jugando al Super Mario Bros de NES, con su cerebro al lado
+(300 iteraciones de PPO, política muestreada). Honestamente: esta demo entrena y mide en el
+mismo nivel, le gana al salto constante (p = 0,008) y **no se distingue de apretar botones
+al azar** (p = 0,25).
+
+<p align="center">
+  <img src="docs/media/mosca_juega_nes.gif" alt="La red cableada como la mosca jugando a Super Mario Bros, con la actividad de sus neuronas al lado" width="100%">
+</p>
+
 Toda cifra se lee contra cuatro líneas de referencia (azar, siempre a la derecha, salto
 constante, heurística escrita a mano) o no se lee: **PPO cae solo en la política degenerada**
 de saltar siempre a la derecha, que ya recorre el 38 % del nivel. En el ensayo de portátil

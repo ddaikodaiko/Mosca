@@ -281,6 +281,8 @@ Con eso se actualizan `RESULTADOS.md` y la sección de estado del README.
    64x64: malla >=256, hiperviscosidad y ~2000 modos en el codificador. ~80x en simulación
    y ~15 GB de datos, en los seis modelos por igual.
 
-El checkpoint de la demo de NES (`artifacts/mario_nes_demo/mosca_s0.pt`, iteración 190 de
-600) es anterior a la normalización de entrada y avisa al cargarlo. No hay reanudación: si
-se quiere, se relanza entero.
+La demo de NES (`artifacts/mario_nes_demo/mosca_s0.pt`) está reentrenada entera el
+22-09-2026: 300 iteraciones con la normalización de entrada puesta, 52 min de portátil.
+Muestreada saca 0,285 de progreso y un 2,1 % de metas, le gana al salto constante
+(p = 0,008) y **sigue sin distinguirse del azar** (p = 0,25). El checkpoint viejo, cortado
+en la iteración 190 y sin normalizar, se queda al lado como `mosca_s0_190it_sin_normalizar.pt`.

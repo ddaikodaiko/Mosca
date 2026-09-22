@@ -66,6 +66,15 @@ with the subgraph lighting up on top, at their real FlyWire coordinates.
   <img src="docs/media/mario_referencias.gif" alt="The four reference policies playing the platformer" width="100%">
 </p>
 
+And the fly-wired network playing NES Super Mario Bros, with its brain next to it (300 PPO
+iterations, sampled policy). Honestly: this demo trains and measures on the same level, it
+beats the constant-jump policy (p = 0.008) and is **indistinguishable from mashing buttons
+at random** (p = 0.25).
+
+<p align="center">
+  <img src="docs/media/mosca_juega_nes.gif" alt="The fly-wired network playing Super Mario Bros, with its neural activity beside it" width="100%">
+</p>
+
 Every number is read against four reference policies (random, always right, constant jump,
 hand-written heuristic) or it is not read at all: **PPO falls into the degenerate policy on
 its own** — always jumping right already covers 38 % of the level. In the laptop rehearsal
