@@ -20,9 +20,11 @@ Todo lo de abajo (puntos 1-6) ya se hizo una vez en la 3060 Ti. Quedan dos cosas
 para la proxima sesion, **en esta misma maquina** (los datos y checkpoints no viajan por
 git, `artifacts/` esta en `.gitignore`):
 
-1. **Terminar la tanda de 18 de la fase 4.** Se lanzo, iba por `mosca_s2` (mosca_s0 y s1 ya
-   terminados) y se corto para apagar la maquina. Retomar con el mismo comando de siempre,
-   no pierde nada (instantanea cada 500 pasos):
+1. **Terminar la tanda de 18 de la fase 4.** Al cierre del 23-09-2026 hay **8 de 18
+   terminados** (mosca x3, aleatorio x3, recableado s0, sin_nucleo s0) y `recableado s1` en
+   marcha; quedan denso x3, sin_nucleo s1/s2, fno x3 y lo que falte de recableado. Cada
+   entrenamiento son ~17-19 min. Se corto para apagar la maquina. Retomar con el mismo
+   comando de siempre, no pierde nada (instantanea cada 500 pasos):
    ```bash
    bash scripts/tanda.sh configs/entrenamiento_64.yaml
    python evaluate.py --config configs/entrenamiento_64.yaml
@@ -35,9 +37,33 @@ git, `artifacts/` esta en `.gitignore`):
    la tarea. El unico sospechoso que queda —el gradiente truncado a un paso de entorno— es
    una desviacion del diseno: **pedir permiso al usuario antes de tocar codigo**, no
    proponerlo solo.
-3. Nota menor: `torch==2.14.0` con CUDA necesita el indice `cu126` o `cu130` en esta
+3. **Demo cableada de Mario en la GPU, a medias.** `python train_rl.py --config
+   configs/mario_nes_demo_critico.yaml --model mosca --seed 0` iba por la iteracion 120 de
+   300 (~8,6 s/it, cuello en el emulador de CPU). Relanzar el mismo comando la retoma
+   (`resume_every: 10`; no es bit a bit, los entornos arrancan de cero). Al acabar:
+   `python visor_nes.py --config configs/mario_nes_demo_critico.yaml --checkpoint
+   artifacts/mario_nes_demo_critico/mosca_s0.pt --stage 1-1 --sample` abre el visor del
+   cerebro (usa matplotlib; `watch_nes.py` NO funciona aqui: pyglet 1.5.21 rompe con Python
+   3.14).
+4. Nota menor: `torch==2.14.0` con CUDA necesita el indice `cu126` o `cu130` en esta
    maquina (Python 3.14), no `cu124` como decia este documento mas arriba — `cu124` no
    tiene build para cp314. `pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/cu126`.
+
+### Tareas para el portatil (sin GPU, mientras la tanda sigue en el PC)
+
+El portatil no puede con la tanda (197 h de CPU), asi que lo suyo es lo que no necesita GPU:
+
+1. `git pull` en `Mosca` y en `Mosca-notas`; traer las notas internas a `Mosca/`.
+2. **Grabar el video del visor con el checkpoint bueno que ya tiene el portatil**
+   (`artifacts/mario_nes_demo/mosca_s0.pt`): `python visor_nes.py --config
+   configs/mario_nes_demo.yaml --checkpoint artifacts/mario_nes_demo/mosca_s0.pt --stage
+   1-1 --sample --record docs/media/visor.mp4`. Lo que se ve es el mismo modelo que se midio
+   (0,285 de progreso muestreado), no el reentrenado en la GPU.
+3. **Preparar la decision sobre el gradiente truncado de la fase 6** (unico sospechoso que
+   queda tras el MLP libre): escribir la propuesta, sin tocar `train_rl.py` ni
+   `models/masked_policy.py`, y llevarsela al usuario. Es desviacion del diseno.
+4. Cuando el PC termine la tanda, traer al portatil `artifacts/train_64/train_report*.json`,
+   `eval_report.json` y `figs/` para actualizar la seccion de estado del README.
 
 ## 0. Resumen de lo que hay que lanzar allí
 
