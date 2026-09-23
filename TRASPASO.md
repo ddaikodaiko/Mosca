@@ -14,6 +14,59 @@ lanzar alli, y esta en el punto 8.
 
 ---
 
+## PENDIENTES PARA EL PC GRANDE (al cierre del 23-09-2026) — empezar por aqui
+
+Rama `fase-6-mario`, `pytest -q` en verde (108). Nada corriendo en el portatil. Lo que el
+portatil dejo hecho el 23-09 esta en RESULTADOS.md (tres secciones con esa fecha). Los
+checkpoints no viajan por git: lo que haga falta se regenera con los comandos de abajo.
+
+**1. Terminar la tanda de 18 de la fase 4 y evaluarla.** Es lo unico que responde a la
+pregunta del proyecto. Sigue igual que en la seccion siguiente (iba por `mosca_s2`):
+
+```bash
+bash scripts/tanda.sh configs/entrenamiento_64.yaml
+python evaluate.py --config configs/entrenamiento_64.yaml
+```
+
+**2. Demo de NES: afinar con PPO la mosca clonada del 1-1.** En el portatil se clono (0,947
+de progreso, bandera 4 de 12) pero afinar con PPO son ~50 min de CPU y no se lanzo. En el
+PC grande el cuello sigue siendo el emulador (CPU), ~40 min. Primero regenerar la clonada
+(~7 min, el checkpoint se quedo en el portatil) y comprobar que da ~0,95:
+
+```bash
+python clonado_rl.py --config configs/mario_nes_demo.yaml --modelos mosca \
+    --niveles-demo 40 --niveles-val 3 --niveles-juego 4 --ruido 0.15 --ventana 8 \
+    --lote 64 --pasos 4000 --guarda-pesos \
+    --salida artifacts/mario_nes_demo/clonado/clonado_s0.json
+python train_rl.py --config configs/mario_nes_demo.yaml --model mosca --seed 0 \
+    --desde artifacts/mario_nes_demo/clonado/mosca_s0.pt
+python evaluate_rl.py --config configs/mario_nes_demo.yaml --levels 12 \
+    --checkpoint artifacts/mario_nes_demo/clonado/mosca_s0.pt \
+    --checkpoint artifacts/mario_nes_demo/desde_clonado/mosca_s0.pt
+```
+
+Lectura: el objetivo es que pase de la escalera final (donde se atasca en 8 de 12). Ojo:
+PPO entrena con la h desacoplada entre pasos y el clonado aprendio a usar memoria de 8
+pasos; si PPO empeora la clonada, puede ser por eso, y se dice. Si mejora, grabar video
+nuevo con `visor_nes.py --checkpoint .../desde_clonado/mosca_s0.pt --stage 1-1 --record
+docs/media/...` eligiendo una semilla que llegue a la bandera. Todo esto es **demo**: mismo
+nivel e imitacion.
+
+**3. (Barato, opcional) Control de cableado en la demo.** El mismo clonado de arriba con
+`--modelos mosca,aleatorio,recableado,denso,sin_nucleo,mlp` (~6x el tiempo, ~40 min). Da
+una tabla con controles en vez de un video suelto. Sigue siendo el mismo nivel: no vale
+como resultado de la fase 6b, solo como diagnostico.
+
+**4. DECISION DEL USUARIO antes de tocar codigo: la fase 6 de verdad.** Medido el 23-09:
+PPO desde cero no encuentra la politica buena (ni la mosca ni el MLP en el prototipo),
+pero si la conserva si arranca de ella. Las tres salidas (arrancar del clonado, explorar
+mas con entropia o curriculo, o cerrar la fase como sin resolucion) estan al final de la
+seccion "PPO no destruye la politica buena" de RESULTADOS.md. Las tres son desviacion del
+diseno. En el NES ademas la heuristica solo se pasa el 1-1, asi que "arrancar del
+clonado" en niveles disjuntos exige antes una maestra que generalice.
+
+---
+
 ## Actualizacion, cierre de la primera sesion en la GPU (22-09-2026 noche)
 
 Todo lo de abajo (puntos 1-6) ya se hizo una vez en la 3060 Ti. Quedan dos cosas abiertas
