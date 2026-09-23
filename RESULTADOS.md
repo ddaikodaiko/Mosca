@@ -1299,3 +1299,64 @@ El "0,098" del nucleo es su progreso **codicioso**; el muestreado de la demo ree
 **0,285**. La fila "progreso muestreado" comparaba cosas distintas. El MLP (0,36-0,56) sigue
 por encima, pero la distancia es menor de lo que decia la tabla, y falta su contraste
 contra `azar` (esta en la lista fija de `evaluate_rl.py`).
+
+---
+
+## 23-09-2026 (tarde): PPO no destruye la politica buena, no la encuentra (portatil)
+
+Siguiente paso de la seccion anterior: si el nucleo puede representar la politica y PPO no
+lo lleva hasta ella, ¿es que el gradiente de PPO la empuja lejos, o que desde cero no la
+alcanza? Se arranca PPO **desde la politica clonada** y se compara con arrancar de cero.
+
+Herramienta, sin cambio de diseno: `clonado_rl.py --guarda-pesos` guarda cada politica
+clonada en `<output_dir>/clonado/`, y `train_rl.py --desde <checkpoint>` arranca de esos
+pesos (la normalizacion de la entrada viaja en el checkpoint y no se vuelve a medir) y
+escribe en `<output_dir>/desde_<carpeta>/`. Receta PPO identica a `configs/mario_proto.yaml`
+(400 iteraciones, sin `normalise_returns`). Las lineas "desde cero" de las semillas 1 y 2
+son el mismo YAML con `output_dir: artifacts/mario_proto/desde_cero` (el prototipo original
+solo tenia la semilla 0). Mosca y MLP, semillas 0-2, 18 checkpoints evaluados en
+codicioso sobre los **mismos 40 niveles de test** con `evaluate_rl.py --checkpoint`.
+
+| modelo | desde cero | solo clonado | clonado + 400 it de PPO |
+|---|---|---|---|
+| mosca s0 / s1 / s2 | 0,823 / 0,824 / 0,824 | 0,904 / 0,910 / 0,910 | 0,947 / 0,902 / 0,924 |
+| **mosca, media** | **0,824** | **0,908** | **0,924** |
+| mlp s0 / s1 / s2 | 0,841 / 0,823 / 0,827 | 0,923 / 0,923 / 0,932 | 0,869 / 0,960 / 0,890 |
+| **mlp, media** | **0,830** | **0,926** | **0,906** |
+
+Referencias en esos niveles: azar 0,521, siempre derecha 0,255, **salto constante 0,793**,
+heuristica 0,978. Contra el salto constante (permutacion pareada por nivel): **ninguna** de
+las seis de cero se distingue (+0,03 a +0,05, p 0,42-0,60); las seis clonadas y las seis
+clonadas + PPO le ganan (+0,08 a +0,17; p < 0,05 en 10 de 12, 0,054 y 0,096 las otras
+dos). Salida completa en `artifacts/mario_proto/desde_clonado/rl_evaluacion_cero_clon_clonppo.*`.
+
+Lectura:
+- **PPO no destruye la politica buena.** Desde el clonado la mantiene: mosca +0,016 de
+  media, MLP -0,020, con una dispersion entre semillas (±0,04) mayor que el efecto. No hay
+  un gradiente que empuje de vuelta al salto constante.
+- **Desde cero no la encuentra**, ni el nucleo ni el MLP libre: los seis se quedan pegados
+  al salto constante (la mosca da 0,823-0,824 en las tres semillas, la misma politica
+  deterministica). En este entorno el MLP tampoco aprende, a diferencia del NES.
+- O sea: la politica buena es **otra cuenca**, y PPO desde una inicializacion aleatoria cae
+  en la de la politica degenerada y de ahi no sale. El freno es de **exploracion**, no de
+  representacion (seccion anterior), ni de memoria, ni de que el gradiente de PPO sea
+  toxico. Y en el prototipo no es especifico del nucleo.
+
+Sobre la pista del recorte global de la seccion anterior: Adam es invariante a multiplicar
+todo el gradiente por una constante, asi que un factor de recorte de 0,165 **no** convierte
+por si solo el lr de 3e-4 en 5e-5. Lo que si puede pesar es que en los parametros
+compartidos (codificador y nucleo) la suma ponderada la domina el valor (~90x): ahi la
+politica apenas deja huella en los momentos de Adam. Coherente con lo de arriba, pero no
+medido aparte.
+
+### Lo que esto deja para decidir (todo es desviacion del diseno: se consulta antes)
+
+1. **Arrancar las seis politicas del clonado de la heuristica** y afinar con PPO. Funciona
+   (tabla), pero el experimento pasa a medir "cuanto mejora PPO una politica ya buena" y la
+   maestra fija el techo; ademas solo vale en el entorno propio (la heuristica lee el estado
+   interno del nivel, en el NES no hay heuristica).
+2. **Explorar mas desde cero**: entropia al principio mas alta con decaimiento, o un
+   curriculo de niveles (sin enemigos ni tubos al principio). Mantiene el experimento como
+   esta; no garantiza salir de la cuenca.
+3. **Dejar la fase 6 como esta** y darla por "sin resolucion": un empate con todos pegados a
+   la politica degenerada no dice nada del cableado.

@@ -376,3 +376,10 @@ El punto 2 de arriba ya no aplica: **el gradiente truncado no es el freno** de l
 (el nucleo no usa memoria y, por clonado de la heuristica, si puede representar una buena
 politica; detalle en RESULTADOS.md, seccion del 23-09-2026). No hay que pedir permiso para
 quitarlo porque no hay que quitarlo. El freno esta en como PPO entrena el nucleo.
+
+Y la misma tarde, medido: arrancando PPO **desde la politica clonada** (mosca y MLP, 3
+semillas, prototipo propio) la politica buena se **mantiene** (mosca 0,908 -> 0,924, MLP
+0,926 -> 0,906, frente a 0,824 / 0,830 desde cero y 0,793 del salto constante). PPO no la
+destruye; desde cero no la encuentra, y en el prototipo **tampoco el MLP**. El freno es de
+exploracion. Las tres salidas posibles estan al final de RESULTADOS.md y las tres son
+desviacion del diseno: **decision del usuario antes de tocar nada**.

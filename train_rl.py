@@ -274,7 +274,8 @@ def evaluate(
 
 
 def train_one(
-    name: str, seed: int, cfg: dict[str, Any], wirings: dict[str, Wiring], device: torch.device
+    name: str, seed: int, cfg: dict[str, Any], wirings: dict[str, Wiring], device: torch.device,
+    desde: Path | None = None,
 ) -> dict[str, Any]:
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -322,6 +323,18 @@ def train_one(
         best = dict(estado["mejor"])
         primera_iteracion = int(estado["iteracion"]) + 1
         reanudaciones = int(estado["reanudaciones"]) + 1
+    elif desde is not None:
+        # Arranque desde pesos ya entrenados (p. ej. la politica clonada de la heuristica).
+        # Las estadisticas de la entrada viajan en el state_dict y NO se vuelven a medir:
+        # cambiarlas moveria la politica de partida. Se evalua antes de la primera
+        # iteracion para saber de donde parte PPO.
+        policy.load_state_dict(torch.load(desde, map_location=device)["state_dict"])
+        episodios = int(cfg.get("eval_episodes", 16))
+        history.append({"iteracion": -1, "desde": str(desde),
+                        "val": evaluate(policy, cfg, "val", episodios, device),
+                        "val_muestreada": evaluate(policy, cfg, "val", episodios, device, sample=True)})
+        print(f"  arranque desde {desde}: val progreso {history[-1]['val']['progreso']:.3f}"
+              f" (muestreada {history[-1]['val_muestreada']['progreso']:.3f})")
     elif cfg.get("normalise_observations", True):
         # Las estadisticas se miden UNA vez, antes de entrenar; al reanudar vienen ya
         # dentro del checkpoint y volver a medirlas cambiaria el modelo a mitad.
@@ -391,6 +404,7 @@ def train_one(
     return {
         "modelo": name,
         "semilla": seed,
+        "desde": str(desde) if desde is not None else None,
         "neuronas": int(policy.n_neurons),
         "parametros": int(n_parameters),
         "segundos": time.time() - started,
@@ -417,9 +431,16 @@ def main() -> int:
     parser.add_argument("--device", default=None)
     parser.add_argument("--iterations", default=None, type=int,
                         help="acorta ppo.iterations; para medir el coste en una maquina nueva")
+    parser.add_argument("--desde", default=None, type=Path,
+                        help="arranca de estos pesos (formato de checkpoint de train_rl.py);"
+                             " la salida va a <output_dir>/desde_<fichero>/. Un solo modelo")
     args = parser.parse_args()
 
     cfg = yaml.safe_load(args.config.read_text())
+    if args.desde is not None:
+        if args.model is None or args.seed is None:
+            parser.error("--desde exige --model y --seed")
+        cfg["output_dir"] = str(Path(cfg["output_dir"]) / f"desde_{args.desde.parent.name}")
     if args.iterations is not None:
         cfg["ppo"]["iterations"] = args.iterations
         cfg["output_dir"] = str(Path(cfg["output_dir"]) / f"medicion_{args.iterations}it")
@@ -430,7 +451,8 @@ def main() -> int:
     models = [args.model] if args.model else list(cfg["models"])
     seeds = [args.seed] if args.seed is not None else list(cfg["seeds"])
     results = [
-        train_one(name, int(seed), cfg, wirings, device) for name in models for seed in seeds
+        train_one(name, int(seed), cfg, wirings, device, args.desde)
+        for name in models for seed in seeds
     ]
 
     out_dir = Path(cfg["output_dir"])

@@ -97,6 +97,9 @@ def main() -> int:
     parser.add_argument("--niveles-juego", type=int, default=40)
     parser.add_argument("--semilla", type=int, default=0)
     parser.add_argument("--salida", type=Path, default=None)
+    parser.add_argument("--guarda-pesos", action="store_true",
+                        help="guarda cada politica clonada en <output_dir>/clonado/, con el"
+                             " formato de train_rl.py, para arrancar PPO desde ella (--desde)")
     args = parser.parse_args()
 
     cfg = yaml.safe_load(args.config.read_text())
@@ -163,6 +166,11 @@ def main() -> int:
             "segundos": time.time() - t0,
         }
         resultados["modelos"][nombre] = fila
+        if args.guarda_pesos:
+            destino = Path(cfg["output_dir"]) / "clonado" / f"{nombre}_s{args.semilla}.pt"
+            destino.parent.mkdir(parents=True, exist_ok=True)
+            torch.save({"modelo": nombre, "semilla": args.semilla, "config": cfg,
+                        "origen": "clonado_rl.py", "state_dict": politica.state_dict()}, destino)
         print(f"{nombre:11s} acierto val {fila['acierto_val']:.3f}  recall salto"
               f" {fila['recall_salto_val']:.3f}  saltos de mas {fila['salto_de_mas_val']:.3f}"
               f"  progreso {fila['progreso']:.3f}   [{fila['segundos']:.0f} s]", flush=True)
