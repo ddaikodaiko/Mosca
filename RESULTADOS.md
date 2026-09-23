@@ -1360,3 +1360,57 @@ medido aparte.
    esta; no garantiza salir de la cuenca.
 3. **Dejar la fase 6 como esta** y darla por "sin resolucion": un empate con todos pegados a
    la politica degenerada no dice nada del cableado.
+
+---
+
+## 23-09-2026: la mosca se pasa el 1-1 de NES (demo, por imitacion)
+
+Por encargo del usuario: que juegue al Mario de verdad. Es la receta que funciono en el
+prototipo (seccion anterior), llevada al NES. **Es demo, no experimento**: entrena y mide
+en el 1-1, y lo que aprende lo copia de una heuristica escrita a mano, no lo descubre.
+
+### Una maestra para el NES
+
+`envs/nes_mario.JugadorHeuristico`, leyendo la RAM: corre con B, salta con A si hay muro,
+hoyo o enemigo delante, mantiene A mientras sube y la suelta al caer. Dos trampas medidas
+por el camino: (1) soltar A al aterrizar en vez de al caer perdia un paso y un goomba lo
+alcanzaba (moria en x = 693); (2) mirar solo la casilla de debajo tomaba el borde de la
+tuberia alta por un hoyo, saltaba desde ella y caia en el hoyo de verdad (x = 1.130). Con
+"hoyo = columna vacia hasta el fondo" **se pasa el 1-1 entero** en 315 pasos. En el resto
+de niveles no vale (progreso 0,06-0,55 en 1-2 ... 8-1): no sabe de enemigos voladores,
+plataformas ni castillos. Test: `test_la_heuristica_se_pasa_el_1_1`.
+
+### Clonado con memoria
+
+Sin memoria (`h = 0` en cada paso, como en el prototipo) acierta el 92,7 % de las
+acciones y solo recorre el **13,6 %**: la maestra decide cosas que no estan en la
+observacion (si sube o baja, si acaba de aterrizar con A pulsada), y si la red se
+equivoca ahi se queda con A apretada contra la primera tuberia. `clonado_rl.py --ventana
+K` entrena sobre tramos de K pasos seguidos arrastrando la h y juega con ella: el nucleo
+recurrente lo recuerda. Tambien `--ruido p`: se ejecuta una accion al azar con
+probabilidad p pero la etiqueta es la de la maestra, porque sin ruido las 20 partidas del
+1-1 son identicas.
+
+| clonado (mosca, N = 500, 1-1) | acierto val | progreso |
+|---|---|---|
+| sin memoria, 20 partidas, ruido 0,10, 1.500 pasos | 0,927 | 0,136 |
+| ventana 8, 20 partidas, ruido 0,10, 1.500 pasos | 0,966 | 0,777 |
+| ventana 8, 40 partidas, ruido 0,15, 3.000 pasos | 0,977 | 0,942 |
+| **ventana 8, 40 partidas, ruido 0,15, 4.000 pasos** | **0,980** | **0,971** |
+
+`evaluate_rl.py --checkpoint`, codicioso, 12 partidas del 1-1:
+
+| | progreso | bandera |
+|---|---|---|
+| **mosca clonada** | **0,947** | **4 de 12** |
+| mosca con PPO (300 it, la demo anterior) | 0,098 | 0 |
+| azar / saltar siempre | 0,222 / 0,098 | 0 |
+
+Contra el azar +0,725, p = 0,0004. Cuando no llega a la bandera se queda atascada contra
+la escalera final (x = 2.996, 94 %) hasta que salta el corte por atasco; una vez de doce
+en x = 2.470. Video: `docs/media/mosca_clonada_1-1.mp4` (semilla 5, bandera).
+Checkpoint: `artifacts/mario_nes_demo/clonado/mosca_s0.pt` (no viaja con el repo).
+
+Encuadre si se publica: "una red cableada como el cerebro de una mosca aprende a imitar a
+un jugador escrito a mano y se pasa el 1-1". No dice nada del cableado (no hay control
+aleatorio en esta demo) ni de aprendizaje por refuerzo.

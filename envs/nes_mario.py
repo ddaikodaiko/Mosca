@@ -275,3 +275,45 @@ class VectorNesMario:
             np.asarray(dones, dtype=bool),
             infos,
         )
+
+
+class JugadorHeuristico:
+    """Heuristica escrita a mano para el NES, leyendo la RAM. Una instancia por partida.
+
+    Corre con B siempre; salta con A si delante hay un muro, un hoyo o un enemigo, mantiene
+    A mientras sube (salto alto) y la suelta al caer, para poder volver a saltar nada mas
+    tocar el suelo. Un hoyo es una columna vacia hasta el fondo de la pantalla: con solo
+    mirar la casilla de debajo, al aterrizar sobre una tuberia alta tomaba el borde por un
+    hoyo, saltaba y caia en el hoyo de verdad.
+
+    Alcance medido (23-09-2026, semilla 0): **se pasa el 1-1 entero** (315 pasos) y en los
+    demas niveles muere pronto (progreso 0,06-0,55: no sabe de enemigos voladores,
+    plataformas ni castillos). Sirve de maestra para la demo del 1-1, no de referencia
+    superior del experimento con niveles disjuntos.
+    """
+
+    CORRER, CORRER_SALTO = 3, 4
+
+    def __init__(self, muro: int = 40, hueco: int = 20, enemigo: int = 72) -> None:
+        self.muro, self.hueco, self.enemigo = muro, hueco, enemigo
+        self.anterior = self.CORRER
+        self.y_anterior: int | None = None
+
+    def __call__(self, env: NesMarioEnv) -> int:
+        x, y = env.x, env.y
+        subiendo = self.y_anterior is not None and y < self.y_anterior
+        self.y_anterior = y
+        if not env.on_ground:
+            accion = self.CORRER_SALTO if subiendo else self.CORRER
+        elif self.anterior == self.CORRER_SALTO:
+            accion = self.CORRER  # soltar A: sin esto no hay segundo salto
+        else:
+            muro = any(env._tile(x + d, y + dy)
+                       for d in range(16, 16 + self.muro, 8) for dy in (0, -8))
+            hueco = any(not any(env._tile(x + d, yy) for yy in range(y + 16, 240, TILE))
+                        for d in range(16, 16 + self.hueco, 4))
+            enemigo = any(0 < ex - x < self.enemigo and -40 < int(ey) - y < 72
+                          for ex, ey in env.enemies)
+            accion = self.CORRER_SALTO if (muro or hueco or enemigo) else self.CORRER
+        self.anterior = accion
+        return accion

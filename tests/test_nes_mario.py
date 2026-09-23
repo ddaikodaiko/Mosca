@@ -20,6 +20,7 @@ gym_super_mario_bros = pytest.importorskip(
 from envs.nes_mario import (  # noqa: E402
     N_NES_ACTIONS,
     STAGES,
+    JugadorHeuristico,
     NesConfig,
     NesMarioEnv,
     VectorNesMario,
@@ -123,3 +124,17 @@ def test_el_vector_reinicia_solo_y_no_repite_semilla() -> None:
     assert envs.counters.tolist() != [0, 1], "no ha consumido semillas nuevas"
     for env in envs.envs:
         env.close()
+
+
+def test_la_heuristica_se_pasa_el_1_1() -> None:
+    """Es la maestra del clonado de la demo: si deja de pasarse el 1-1, la mosca clonada
+    aprende de una maestra que no sabe jugar. Fija tambien las dos trampas que costaron
+    encontrar: soltar A al caer y no tomar el borde de una tuberia por un hoyo."""
+    env = NesMarioEnv("train", ObservationConfig(), NesConfig(stage=[1, 1], random_noop=0))
+    env.reset(0)
+    jugador, done = JugadorHeuristico(), False
+    while not done:
+        _, _, done, info = env.step(jugador(env))
+    env.close()
+    assert info["meta"], info
+
