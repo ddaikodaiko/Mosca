@@ -369,3 +369,10 @@ La demo de NES (`artifacts/mario_nes_demo/mosca_s0.pt`) está reentrenada entera
 Muestreada saca 0,285 de progreso y un 2,1 % de metas, le gana al salto constante
 (p = 0,008) y **sigue sin distinguirse del azar** (p = 0,25). El checkpoint viejo, cortado
 en la iteración 190 y sin normalizar, se queda al lado como `mosca_s0_190it_sin_normalizar.pt`.
+
+## Actualizacion del 23-09-2026 (portatil)
+
+El punto 2 de arriba ya no aplica: **el gradiente truncado no es el freno** de la fase 6
+(el nucleo no usa memoria y, por clonado de la heuristica, si puede representar una buena
+politica; detalle en RESULTADOS.md, seccion del 23-09-2026). No hay que pedir permiso para
+quitarlo porque no hay que quitarlo. El freno esta en como PPO entrena el nucleo.

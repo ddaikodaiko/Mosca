@@ -130,7 +130,8 @@ And the Mario task:
 pip install nes-py gym-super-mario-bros        # only for the NES environment
 python train_rl.py    --config configs/mario_proto.yaml        # own environment, prototype
 python evaluate_rl.py --config configs/mario.yaml --muestrea --repeticiones 6
-python diagnostico_rl.py artifacts/mario_nes_demo/mosca_s0.pt   # is the critic blind?
+python diagnostico_rl.py artifacts/mario_nes_demo/mosca_s0.pt   # is the critic blind? does it use memory?
+python clonado_rl.py  --config configs/mario_proto.yaml        # can it represent the heuristic?
 python visor_nes.py   --config configs/mario_nes_demo.yaml     # game + anatomical brain
 ```
 

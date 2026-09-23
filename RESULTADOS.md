@@ -1223,3 +1223,79 @@ herramienta, no un cambio de diseno del experimento.
    en `.gitignore` y no viaja con el clon. Para verlo jugar con el visor anatomico
    (`visor_nes.py`) en esta maquina hay que traerlo a mano o reentrenarlo aqui (~40 min,
    limitado por el emulador en CPU, no por la GPU).
+
+---
+
+## 23-09-2026: el gradiente truncado NO es el freno de la fase 6 (portatil, sin GPU)
+
+Revision del veredicto de la seccion anterior, con tres medidas baratas y ningun cambio
+del diseno.
+
+### 1. El argumento no se sostenia: el MLP que aprende no tiene memoria
+
+`MLPPolicy.forward` devuelve la `h` sin tocarla: es una red **sin memoria**. Si aprende a
+jugar, jugar bien no necesita memoria. Alargar el gradiente mas alla de un paso de entorno
+solo sirve para que el nucleo aprenda memoria, asi que no puede ser lo que le impide
+aprender lo que el MLP aprende sin ella.
+
+### 2. Medido: el nucleo entrenado no usa la h arrastrada
+
+`diagnostico_rl.py` (seccion nueva) sobre `artifacts/mario_nes_demo/mosca_s0.pt`, 4
+episodios, semillas 101-104: poner `h = 0` en cada paso cambia la politica **0,006** de
+variacion total (mediana; p90 0,008) y la accion mas probable coincide en el **100 %** de
+los pasos. Cambiar la observacion por la de otro momento la mueve 0,018 (p90 0,139). El
+nucleo ya se comporta como una red sin memoria.
+
+### 3. Medido: el nucleo SI puede representar una buena politica (clonado de conducta)
+
+`clonado_rl.py --config configs/mario_proto.yaml --semilla {0,1,2}`: entorno propio,
+N=500, 56+56 puertos, `n_shared` 15 (la misma escala que la demo de NES). Entropia cruzada
+contra la heuristica en 300 niveles de entrenamiento (56.759 pasos), 1.500 pasos de Adam,
+lr 1e-3, lote 256, sin memoria (`h = 0`). Progreso jugando en codicioso sobre 40 niveles
+de validacion. Las semillas cambian la inicializacion y el orden de los lotes; los niveles
+son los mismos.
+
+| modelo | s0 | s1 | s2 | media |
+|---|---|---|---|---|
+| heuristica (maestra) | | | | 0,946 |
+| mlp | 0,861 | 0,844 | 0,865 | 0,857 |
+| denso | 0,852 | 0,859 | 0,865 | 0,859 |
+| recableado | 0,845 | 0,835 | 0,828 | 0,836 |
+| aleatorio | 0,828 | 0,828 | 0,828 | 0,828 |
+| **mosca** | 0,806 | 0,835 | 0,828 | **0,823** |
+| sin_nucleo | 0,710 | 0,754 | 0,798 | 0,754 |
+| saltar siempre | | | | 0,747 |
+| siempre derecha | | | | 0,229 |
+
+El acierto por acciones no sirve para leer esto (la clase mayoritaria da el 91,4 % y todos
+sacan el 99,5 %); lo que separa es el recall del salto (0,94-0,97) y el progreso al jugar.
+
+Lectura:
+- Los tres cableados con nucleo aprenden **por supervision** una politica que le gana al
+  salto constante por ~0,08, en 1.500 pasos. Con PPO, el prototipo no se lo ganaba nadie.
+- El nucleo aporta frente a no tenerlo: `sin_nucleo` se queda en el salto constante.
+- Mosca, aleatorio y recableado empatan (0,82-0,84, dentro de la dispersion entre
+  semillas). No es una comparacion del experimento: es un diagnostico de capacidad.
+
+### Veredicto revisado
+
+El freno de la fase 6 **no es** de representacion ni de memoria: el nucleo puede expresar
+una politica buena y sin memoria, y la aprende enseguida cuando la senal es supervisada.
+Lo que falla es **llevarlo hasta ella con PPO**. Quitar el truncado seria una desviacion
+del diseno cara (BPTT por el despliegue) que, segun estas medidas, no ataca el problema.
+
+Pista medida pero **no decisiva**: en el checkpoint entrenado, el gradiente del valor
+(norma 6,07) es ~90 veces el de la politica (0,066), y `clip_grad_norm_` a 1,0 sobre todos
+los parametros multiplica la actualizacion entera por 0,165, asi que la politica aprende de
+hecho a ~5e-5 en vez de 3e-4. Al inicializar el factor es parecido en el MLP (0,42) y en la
+mosca (0,51), y con el critico normalizado el KL siguio en 1e-5, asi que esto solo no lo
+explica. Al inicializar, el gradiente que llega al codificador desde la politica es ~1.000
+veces menor que el que llega desde el valor en todos los modelos, MLP incluido: el tronco
+compartido lo esculpe el critico.
+
+### Correccion a la tabla del MLP de la seccion anterior
+
+El "0,098" del nucleo es su progreso **codicioso**; el muestreado de la demo reentrenada es
+**0,285**. La fila "progreso muestreado" comparaba cosas distintas. El MLP (0,36-0,56) sigue
+por encima, pero la distancia es menor de lo que decia la tabla, y falta su contraste
+contra `azar` (esta en la lista fija de `evaluate_rl.py`).

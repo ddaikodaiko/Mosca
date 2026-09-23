@@ -55,6 +55,9 @@ def main() -> int:
     # distintas, la politica no puede expresar conducta que dependa de lo que ve, y
     # entonces no hay hiperparametro de PPO que la salve.
     politicas: list[np.ndarray] = []
+    # Entrada y h de cada paso, para medir al final cuanto decide la memoria arrastrada.
+    entradas: list[torch.Tensor] = []
+    ocultos: list[torch.Tensor] = []
     for semilla in range(args.semilla, args.semilla + args.episodios):
         observacion = env.reset(semilla)
         h = politica.initial_state(1, device)
@@ -65,6 +68,8 @@ def main() -> int:
             with torch.no_grad():
                 entrada = torch.as_tensor(observacion, dtype=torch.float32,
                                           device=device).unsqueeze(0)
+                entradas.append(entrada)
+                ocultos.append(h)
                 logits, valor, h = politica(entrada, h)
                 # Si el critico aprendio en escala normalizada, hay que devolverlo a
                 # unidades de recompensa o la comparacion con el retorno no significa nada.
@@ -141,6 +146,21 @@ def main() -> int:
     if np.median(tv) < 0.05:
         print("  La politica es casi la misma en todos los estados: no puede depender de lo"
               "\n  que ve, y ningun hiperparametro de PPO arregla eso.")
+
+    # Cuanto decide la h ARRASTRADA. Si ponerla a cero no cambia la politica, el nucleo no
+    # usa memoria, y alargar el gradiente mas alla de un paso de entorno (que solo sirve
+    # para aprender memoria) no puede ser lo que lo frena.
+    if hasattr(politica, "motor"):
+        x, h_real = torch.cat(entradas), torch.cat(ocultos)
+        with torch.no_grad():
+            sin_memoria = politica(x, torch.zeros_like(h_real))[0].softmax(dim=1).cpu().numpy()
+        tv_memoria = 0.5 * np.abs(probabilidades - sin_memoria).sum(axis=1)
+        misma = float((probabilidades.argmax(axis=1) == sin_memoria.argmax(axis=1)).mean())
+        print(f"\nmemoria: variacion total al poner h = 0: mediana {np.median(tv_memoria):.4f},"
+              f" percentil 90 {np.percentile(tv_memoria, 90):.4f}"
+              f"   |   misma accion mas probable: {100 * misma:.1f} %")
+        if np.median(tv_memoria) < 0.05:
+            print("  La politica no usa la h arrastrada: se comporta como una red sin memoria.")
     return 0
 
 
