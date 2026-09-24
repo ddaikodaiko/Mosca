@@ -1444,3 +1444,28 @@ Lectura:
   diferencia (0,03-0,06) no se puede leer. Entre cableados, empate.
 - Para el video: el 0,947 de la mosca **no es merito del conectoma**; un grafo aleatorio o
   denso con la misma memoria clona igual o mejor.
+
+### Tres semillas (24-09-2026, mismo dia)
+
+Semillas 1 y 2 con la misma receta (`clonado_controles_s{1,2}.{json,log}`). Las
+demostraciones son las mismas en las tres (6.855 pasos, identicas clases): la semilla
+cambia la inicializacion, el entrenamiento y las partidas de juego, no los datos.
+
+| modelo | s0 | s1 | s2 | media | acierto val medio |
+|---|---|---|---|---|---|
+| mosca | 0,942 | 1,000 | 1,000 | 0,981 | 0,981 |
+| aleatorio | 0,968 | 0,968 | 1,000 | 0,979 | 0,987 |
+| recableado | 1,000 | 1,000 | 1,000 | 1,000 | 0,989 |
+| denso | 0,971 | 0,971 | 0,777 | 0,906 | 0,983 |
+| `sin_nucleo` | 0,136 | 0,136 | 0,700 | 0,324 | 0,930 |
+| MLP | 0,136 | 0,136 | 0,685 | 0,319 | 0,941 |
+
+- **Correccion a la lectura de s0:** 0,136 no es un muro. En s2 los dos modelos sin
+  recurrencia pasan la primera tuberia y llegan a 0,70. Sin memoria el resultado es
+  bimodal (se atasca en la tuberia o la pasa); con memoria se pasan el nivel casi siempre.
+  El acierto en validacion lo confirma sin depender de 4 partidas: 0,93-0,94 sin memoria
+  contra 0,98-0,99 con ella, en las tres semillas.
+- **Entre cableados, empate.** Mosca 0,981, aleatorio 0,979, recableado 1,000; el denso
+  baja por una sola partida mala en s2. En acierto la mosca es la mas baja de los cuatro
+  (0,981 contra 0,983-0,989), diferencia del tamano del ruido entre semillas.
+- Sigue siendo el mismo nivel e imitacion: no dice nada de la fase 6b.

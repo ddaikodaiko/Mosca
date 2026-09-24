@@ -91,8 +91,8 @@ Por imitación, la red cableada como la mosca sí se pasa el 1-1 de NES (0,947 d
 bandera en 4 de 12 partidas): [vídeo](docs/media/mosca_clonada_1-1.mp4). Es una demo, no
 ciencia: mismo nivel, copiado de una maestra escrita a mano. Y con controles, el cableado
 no se lleva el mérito: los núcleos aleatorio, recableado y denso la clonan igual de bien
-(0,97-1,00), y los dos modelos sin recurrencia se quedan en 0,14. Lo que se pasa el nivel
-es la memoria, no la mosca.
+(0,91-1,00 en tres semillas), y los dos modelos sin recurrencia se atascan casi siempre
+en la primera tubería (0,32 de media). Lo que se pasa el nivel es la memoria, no la mosca.
 
 ## Estado
 
