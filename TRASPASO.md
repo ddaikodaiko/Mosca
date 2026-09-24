@@ -118,6 +118,9 @@ El portatil no puede con la tanda (197 h de CPU), asi que lo suyo es lo que no n
    configs/mario_nes_demo.yaml --checkpoint artifacts/mario_nes_demo/mosca_s0.pt --stage
    1-1 --sample --record docs/media/visor.mp4`. Lo que se ve es el mismo modelo que se midio
    (0,285 de progreso muestreado), no el reentrenado en la GPU.
+   **Hecho el 24-09-2026** con `--seed 3`: 26,0 % de progreso, la mas cercana a la media
+   de las cuatro semillas grabadas (0: 9,8 %, 1: 45,1 %, 2: 21,9 %, 3: 26,0 %). Se elige
+   la tipica y no la mejor, para no vender una partida escogida.
 3. **Preparar la decision sobre el gradiente truncado de la fase 6** (unico sospechoso que
    queda tras el MLP libre): escribir la propuesta, sin tocar `train_rl.py` ni
    `models/masked_policy.py`, y llevarsela al usuario. Es desviacion del diseno.
