@@ -65,6 +65,11 @@ mas con entropia o curriculo, o cerrar la fase como sin resolucion) estan al fin
 seccion "PPO no destruye la politica buena" de RESULTADOS.md. Las tres son desviacion del
 diseno. En el NES ademas la heuristica solo se pasa el 1-1, asi que "arrancar del
 clonado" en niveles disjuntos exige antes una maestra que generalice.
+**Decidido el 24-09-2026: la fase 6 se cierra como "sin resolucion".** Todos se quedan
+pegados a la politica degenerada, y ese empate no dice nada del cableado. No se lanzan los
+36 entrenamientos de las fases 6 y 6b; la GPU queda para la fase 4. La demo de NES (puntos
+2 y 3) sigue valiendo como video. Si mas adelante se quiere reabrir, la via mas barata es
+arrancar del clonado en el entorno propio (opcion 1 de RESULTADOS.md).
 
 ---
 
