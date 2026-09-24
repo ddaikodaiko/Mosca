@@ -1414,3 +1414,33 @@ Checkpoint: `artifacts/mario_nes_demo/clonado/mosca_s0.pt` (no viaja con el repo
 Encuadre si se publica: "una red cableada como el cerebro de una mosca aprende a imitar a
 un jugador escrito a mano y se pasa el 1-1". No dice nada del cableado (no hay control
 aleatorio en esta demo) ni de aprendizaje por refuerzo.
+
+## 24-09-2026: controles del clonado del 1-1 (demo, portatil)
+
+La misma receta del clonado con memoria de la seccion anterior (`--ventana 8 --ruido 0.15`,
+40 partidas de demostracion, 4.000 pasos, lote 64, semilla 0), con los seis modelos en vez
+de solo la mosca. Mismo nivel e imitacion: **diagnostico, no resultado de la fase 6b.**
+Salida en `artifacts/mario_nes_demo/clonado/clonado_controles_s0.{json,log}`.
+
+| modelo | acierto val | progreso (4 partidas) |
+|---|---|---|
+| mosca | 0,976 | 0,942 |
+| aleatorio | 0,990 | 0,968 |
+| recableado | 0,987 | 1,000 |
+| denso | 0,984 | 0,971 |
+| `sin_nucleo` | 0,928 | 0,136 |
+| MLP | 0,931 | 0,136 |
+
+Referencias: heuristica 1,000, siempre derecha 0,093, saltar siempre 0,098. La clase
+mayoritaria acierta 0,542.
+
+Lectura:
+- **Lo que separa es la memoria, no el cableado.** Los cuatro nucleos recurrentes se pasan
+  el nivel o casi (0,94-1,00); los dos modelos sin recurrencia (`sin_nucleo` y el MLP, que
+  devuelve la h sin tocarla) se quedan en 0,136, exactamente lo mismo que la mosca clonada
+  sin memoria de la seccion anterior. Coincide con que la maestra decide con informacion
+  que no esta en la observacion (si sube o baja, si A esta pulsada).
+- **La mosca es la peor de los cuatro recurrentes**, pero con una semilla y 4 partidas la
+  diferencia (0,03-0,06) no se puede leer. Entre cableados, empate.
+- Para el video: el 0,947 de la mosca **no es merito del conectoma**; un grafo aleatorio o
+  denso con la misma memoria clona igual o mejor.
