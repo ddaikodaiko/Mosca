@@ -89,7 +89,9 @@ of this task are not launched.
 
 By imitation, the fly-wired network does clear NES level 1-1 (0.947 of the level, the flag
 in 4 of 12 games): [video](docs/media/mosca_clonada_1-1.mp4). That is a demo, not science:
-same level, copied from a hand-written teacher, no controls.
+same level, copied from a hand-written teacher. And with controls, the wiring gets no
+credit: random, rewired and dense cores clone it just as well (0.97-1.00), and the two
+models with no recurrence stall at 0.14. What clears the level is memory, not the fly.
 
 ## Status
 
