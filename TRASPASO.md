@@ -133,6 +133,8 @@ El portatil no puede con la tanda (197 h de CPU), asi que lo suyo es lo que no n
    decision que queda es la de exploracion, punto 4 de "PENDIENTES PARA EL PC GRANDE".
 4. Cuando el PC termine la tanda, traer al portatil `artifacts/train_64/train_report*.json`,
    `eval_report.json` y `figs/` para actualizar la seccion de estado del README.
+   Las cifras se vuelcan con `python informe_readme.py artifacts/train_64/eval_report.json`
+   (tabla y contrastes en los dos README, entre marcas; la lectura se escribe a mano).
 
 ## 0. Resumen de lo que hay que lanzar allí
 
