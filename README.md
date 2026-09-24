@@ -78,15 +78,28 @@ at random** (p = 0.25).
 Every number is read against four reference policies (random, always right, constant jump,
 hand-written heuristic) or it is not read at all: **PPO falls into the degenerate policy on
 its own** — always jumping right already covers 38 % of the level. In the laptop rehearsal
-the six models tie and none beats it. This is measured infrastructure, not a result about
-wiring.
+the six models tie and none beats it.
+
+**The Mario experiment is closed with no resolution.** The core *can* represent a good
+policy: cloned from the heuristic it reaches 0.82-0.84 of the level, and PPO keeps it when
+it starts from there. But from scratch PPO never finds it, **and neither does an
+unconstrained MLP**. The bottleneck is exploration, not wiring, so a tie between six models
+stuck in the same degenerate policy would say nothing about the connectome. The 36 GPU runs
+of this task are not launched.
+
+By imitation, the fly-wired network does clear NES level 1-1 (0.947 of the level, the flag
+in 4 of 12 games): [video](docs/media/mosca_clonada_1-1.mp4). That is a demo, not science:
+same level, copied from a hand-written teacher, no controls.
 
 ## Status
 
 **Work in progress. No final result yet.** The real experiment (N = 4,000 neurons, 64×64
-grid, 3 seeds per model) runs on a GPU. What exists so far is a laptop rehearsal (N = 500,
-32×32). See [`RESULTADOS.md`](RESULTADOS.md) for every number, including the ones that went
-wrong.
+grid, 3 seeds per model) is running on a GPU, 8 of 18 runs done. The first seed already
+changes the rehearsal's reading: at full scale the fly core **does** pull away from doing
+nothing, 11 % better than persistence and 4 % better than the zero-connection control over
+a 50-step rollout, where at rehearsal scale it lost. With a single seed that is promising,
+not confirmed; fly against random and rewired needs all 18. See
+[`RESULTADOS.md`](RESULTADOS.md) for every number, including the ones that went wrong.
 
 <!-- RESULTS -->
 

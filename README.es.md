@@ -78,14 +78,28 @@ al azar** (p = 0,25).
 Toda cifra se lee contra cuatro líneas de referencia (azar, siempre a la derecha, salto
 constante, heurística escrita a mano) o no se lee: **PPO cae solo en la política degenerada**
 de saltar siempre a la derecha, que ya recorre el 38 % del nivel. En el ensayo de portátil
-los seis modelos empatan y ninguno le gana a esa política. Es infraestructura medida, no un
-resultado sobre el cableado.
+los seis modelos empatan y ninguno le gana a esa política.
+
+**El experimento de Mario se cierra sin resolución.** El núcleo *sí* puede representar una
+buena política: clonada de la heurística llega al 0,82-0,84 del nivel, y PPO la conserva si
+arranca de ahí. Pero desde cero PPO no la encuentra nunca, **y un MLP libre tampoco**. El
+freno es de exploración, no de cableado, así que un empate entre seis modelos pegados a la
+misma política degenerada no diría nada del conectoma. No se lanzan los 36 entrenamientos
+en GPU de esta tarea.
+
+Por imitación, la red cableada como la mosca sí se pasa el 1-1 de NES (0,947 del nivel,
+bandera en 4 de 12 partidas): [vídeo](docs/media/mosca_clonada_1-1.mp4). Es una demo, no
+ciencia: mismo nivel, copiado de una maestra escrita a mano, sin controles.
 
 ## Estado
 
 **En curso. Todavía no hay resultado final.** El experimento real (N = 4.000 neuronas, malla
-64×64, 3 semillas por modelo) va en GPU. Lo que hay hasta ahora es un ensayo en portátil
-(N = 500, 32×32). Todas las cifras, también las que salieron mal, están en
+64×64, 3 semillas por modelo) está corriendo en GPU, con 8 de 18 entrenamientos hechos. La
+primera semilla ya le da la vuelta a la lectura del ensayo: a escala real el núcleo de la
+mosca **sí** se despega de no hacer nada, un 11 % mejor que la persistencia y un 4 % mejor
+que el control sin conexiones en un despliegue de 50 pasos, donde en el ensayo perdía. Con
+una sola semilla es prometedor, no confirmado; mosca contra aleatorio y recableado necesita
+los 18. Todas las cifras, también las que salieron mal, están en
 [`RESULTADOS.md`](RESULTADOS.md).
 
 <!-- RESULTADOS -->
