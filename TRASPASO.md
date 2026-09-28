@@ -48,6 +48,29 @@ Mirar en la salida, cada 25 iteraciones: `val progreso` (niveles NO entrenados) 
 mismo sintoma de "la politica no se mueve" de la fase 6. Si a las 300 iteraciones el KL
 sigue ahi y el progreso de train no sube, parar y traerlo: la receta no basta.
 
+**Medido en el PC grande al cierre del 28-09-2026, iteracion 475 de 1.500 (mosca, s0):** el
+KL **si se mueve** (no es el sintoma viejo). Promedios de KL por bloques de 50 iteraciones:
+6,2e-5 / 5,5e-5 / 4,9e-5 / 4,2e-5 / 3,8e-5 / 6,4e-5 / **8,2e-5** (iter 0-300, subiendo otra
+vez al final) — un orden de magnitud por encima del 1e-5 fijo de la fase 6 vieja. El
+progreso de train sube con ruido pero con tendencia clara: 0,165 -> 0,183 -> 0,189 -> 0,197
+-> 0,198 -> 0,202 -> 0,215 (medias por bloques de 50) y sigue subiendo hasta 0,29-0,31 hacia
+la iteracion 450. El val progreso tambien se despega un poco de la linea base de 0,098
+("saltar siempre"): ronda 0,12-0,13 desde la iteracion ~200. Con el checkpoint de esa
+iteracion, una partida suelta en 1-1 (entrenado) dio 9,7 % y en 1-3 (NO entrenado) dio 13,1
+%: parecidos entre si, osea que no esta memorizando un nivel concreto, y ninguno es meta
+todavia. **Se corto para apagar la maquina en la iteracion ~475-500** (sin instantanea
+perdida: `resume_every: 10`). Retomar con el mismo comando de la seccion 2; sigue
+`--model mlp` despues, automatico si se usa el mismo `&&` de antes.
+
+**Aviso al apagar (28-09-2026):** al parar la 6c con `taskkill` aparecio un
+`python.exe ... train.py --config configs/entrenamiento_64.yaml --model fno --seed 2`
+corriendo sin que estuviera en ningun log de esta sesion — sobra de una tanda de fluidos
+anterior que no se habia cerrado del todo (parar el proceso de shell con `TaskStop` no mata
+siempre al `python.exe` hijo en Windows; hay que comprobarlo con `tasklist | grep python` y
+matar el PID a mano). Se mato tambien. Antes de lanzar nada nuevo en esta maquina,
+**comprobar `tasklist` y `nvidia-smi` primero** para no competir por GPU/CPU con un proceso
+que se creia parado.
+
 **3. Evaluar contra las referencias** y traer el JSON:
 
 ```bash
