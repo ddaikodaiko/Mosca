@@ -138,3 +138,88 @@ def test_la_heuristica_se_pasa_el_1_1() -> None:
     env.close()
     assert info["meta"], info
 
+
+
+# --- Fase 6c: que aprenda sola ------------------------------------------------------
+
+
+def test_sin_tocar_nada_la_observacion_no_cambia() -> None:
+    """Las opciones de la fase 6c vienen apagadas: 302 numeros, como antes."""
+    env = NesMarioEnv("train", ObservationConfig(), RAPIDO)
+    assert env.reset(0).shape == (ObservationConfig().n_features,)
+    env.close()
+
+
+def test_velocidad_vertical_y_boton_a() -> None:
+    cfg = NesConfig(max_steps=40, random_noop=0, stage=(1, 1), motion_features=True)
+    env = NesMarioEnv("train", ObservationConfig(), cfg)
+    obs = env.reset(0)
+    assert obs.shape == (env.n_features,) == (ObservationConfig().n_features + 2,)
+    assert obs[-2] == 0.0 and obs[-1] == 0.0            # quieto en el suelo, A suelto
+    obs, *_ = env.step(2)                               # derecha + A: salta
+    assert obs[-2] < 0.0 and obs[-1] == 1.0             # subiendo, A pulsado
+    for _ in range(8):
+        obs, *_ = env.step(1)                           # suelta A
+    assert obs[-1] == 0.0
+    env.close()
+
+
+def _partida_hasta_morir(env: NesMarioEnv, semilla: int) -> None:
+    env.reset(semilla)
+    done = False
+    while not done:
+        _, _, done, _ = env.step(3)                      # correr sin saltar: muere pronto
+
+
+def test_la_frontera_arranca_en_el_estado_exacto_de_la_mejor_partida() -> None:
+    cfg = NesConfig(max_steps=300, random_noop=5, stage=(1, 1), frontier_probability=1.0,
+                    frontier_rewind=5)
+    env = NesMarioEnv("train", ObservationConfig(), cfg)
+    _partida_hasta_morir(env, 0)
+    mejor = env._mejor[(1, 1)]
+    obs = env.reset(1)
+    assert env.desde_frontera
+    inicio = env.steps
+    assert inicio == int(np.argmax(mejor["xs"])) + 1 - 5
+
+    # La misma partida rejugada a mano desde la salida tiene que dar el mismo estado.
+    testigo = NesMarioEnv("train", ObservationConfig(), NesConfig(
+        max_steps=300, random_noop=0, stage=(1, 1)))
+    testigo.reset(0)
+    for _ in range(mejor["espera"]):
+        testigo.env.step(0)
+    for accion in mejor["acciones"][:inicio]:
+        testigo.step(accion)
+    np.testing.assert_array_equal(env.env.unwrapped.ram, testigo.env.unwrapped.ram)
+    assert env.max_x == max(mejor["xs"][:inicio])
+    np.testing.assert_array_equal(obs[:-5], testigo._observe()[:-5])  # escalares: max_x/pasos
+    env.close()
+    testigo.close()
+
+
+def test_la_frontera_nunca_se_usa_fuera_de_entrenamiento() -> None:
+    cfg = NesConfig(max_steps=300, random_noop=0, frontier_probability=1.0)
+    for particion in ("val", "test"):
+        env = NesMarioEnv(particion, ObservationConfig(), cfg)
+        _partida_hasta_morir(env, 0)
+        env.reset(1)
+        assert not env.desde_frontera and env.steps == 0 and not env._mejor
+        env.close()
+
+
+def test_en_paralelo_juega_lo_mismo_que_en_serie() -> None:
+    """Mismas semillas -> mismos niveles y mismas observaciones, con o sin procesos."""
+    from envs.nes_mario import VectorNesMarioParalelo
+
+    cfg = NesConfig(max_steps=15, random_noop=3)
+    serie = VectorNesMario(3, "train", ObservationConfig(), cfg)
+    paralelo = VectorNesMarioParalelo(3, "train", ObservationConfig(), cfg)
+    np.testing.assert_array_equal(serie.reset(), paralelo.reset())
+    rng = np.random.default_rng(0)
+    for _ in range(40):                                  # cruza varios reinicios
+        acciones = rng.integers(0, N_NES_ACTIONS, size=3)
+        a, b = serie.step(acciones), paralelo.step(acciones)
+        np.testing.assert_array_equal(a[0], b[0])
+        np.testing.assert_array_equal(a[2], b[2])
+        assert [i["nivel"] for i in a[3]] == [i["nivel"] for i in b[3]]
+    paralelo.close()

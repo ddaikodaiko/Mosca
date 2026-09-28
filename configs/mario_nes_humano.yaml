@@ -1,0 +1,58 @@
+# Fase 6c - la mosca aprende a jugar DE UNA PERSONA (como el de la mosca en Rainbow Six,
+# que aprendio de partidas de jugadores, no por refuerzo). Encargo del usuario, 28-09-2026:
+# "que sepa jugar", no que repita el 1-1 de la heuristica.
+#   python grabar_humano.py --config configs/mario_nes_humano.yaml      # juegas tu
+#   python clonado_rl.py    --config configs/mario_nes_humano.yaml --demos data/demos_humanas --ventana 8
+# Se graba y se entrena en los niveles de train de envs/nes_mario.STAGES y se juega en los
+# de val, que no se han grabado nunca: eso es "saber jugar". max_steps entra en la
+# observacion (tiempo restante), asi que se graba y se entrena con ESTE fichero.
+device: auto
+# Instantanea para reanudar cada N ITERACIONES, en <modelo>_s<semilla>.reanudar.pt. Un
+# corte se retoma sin repetir lo hecho. Ojo: en PPO no es bit a bit —los entornos
+# arrancan de cero al reanudar— y por eso el informe anota cuantas reanudaciones hubo.
+resume_every: 10
+env: nes
+wiring_dir: artifacts/conectoma_500_proto
+output_dir: artifacts/mario_nes_humano
+
+core:
+  n_internal_steps: 2
+  spectral_radius: 0.95
+  leak: 1.0
+
+encoder:
+  n_sensory: 56
+  n_motor: 56
+  n_shared: 15
+
+observation: {window_width: 11, window_height: 9}
+
+nes:
+  frame_skip: 4
+  max_steps: 800      # ~53 s de juego: da para pasarse un nivel sin correr siempre
+  random_noop: 20
+  reward_scale: 0.1
+  death_penalty: 5.0
+  stuck_steps: 80
+
+ppo:
+  n_envs: 8
+  rollout_steps: 128
+  iterations: 300      # solo si luego se afina con PPO desde el clonado (--desde)
+  epochs: 3
+  n_minibatches: 4
+  lr: 3.0e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip: 0.2
+  value_coefficient: 0.5
+  entropy_coefficient: 0.01
+  grad_clip: 1.0
+
+eval_every: 10       # guarda checkpoint en cada evaluacion: se puede mirar mientras corre
+eval_envs: 4
+eval_episodes: 4
+test_episodes: 8
+
+models: [mosca]
+seeds: [0]

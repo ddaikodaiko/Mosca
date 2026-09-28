@@ -14,6 +14,54 @@ lanzar alli, y esta en el punto 8.
 
 ---
 
+## FASE 6c — QUE LA MOSCA APRENDA A JUGAR SOLA (28-09-2026) — lo nuevo, empezar por aqui
+
+Encargo del usuario: que juegue a Mario **aprendiendo sola**, sin imitar a nadie, y que
+juegue en niveles que no ha visto. Rama `fase-6-mario`, `pytest -q` en verde (128 tests).
+Todo esta en `configs/mario_nes_sola.yaml`, que explica cada cambio. Resumen: la
+observacion lleva velocidad vertical y A pulsado, la mitad de los episodios de
+entrenamiento arrancan poco antes de donde mas lejos llego ella misma, la entropia baja
+de 0,02 a 0,002, y los 16 emuladores corren en procesos aparte.
+
+**Hace falta el cableado del prototipo** (96 KB, git-ignored). Se copia
+`artifacts/conectoma_500_proto/` entero o se regenera:
+
+```bash
+python -m connectome.subgraph --config configs/conectoma_500_proto.yaml
+python -m connectome.controls --config configs/conectoma_500_proto.yaml
+```
+
+**1. Medir el coste** (en el portatil: 10-11 s por iteracion, el 95 % emulando):
+
+```bash
+python train_rl.py --config configs/mario_nes_sola.yaml --model mosca --seed 0 --iterations 3
+```
+
+**2. La corrida.** Mosca y MLP libre con la receta identica, 1.500 iteraciones cada uno
+(en el portatil serian ~4,5 h por modelo). Reanudable si se corta:
+
+```bash
+python train_rl.py --config configs/mario_nes_sola.yaml --model mosca --seed 0
+python train_rl.py --config configs/mario_nes_sola.yaml --model mlp   --seed 0
+```
+
+Mirar en la salida, cada 25 iteraciones: `val progreso` (niveles NO entrenados) y `H`.
+**Vigilar el KL** (en el `rl_report`): en la prueba de 30 iteraciones seguia en ~1e-5, el
+mismo sintoma de "la politica no se mueve" de la fase 6. Si a las 300 iteraciones el KL
+sigue ahi y el progreso de train no sube, parar y traerlo: la receta no basta.
+
+**3. Evaluar contra las referencias** y traer el JSON:
+
+```bash
+python evaluate_rl.py --config configs/mario_nes_sola.yaml --muestrea --repeticiones 6
+```
+
+Se lee asi: sabe jugar si en val le gana con claridad a `azar` y al salto constante; la
+heuristica (se pasa el 1-1, muere pronto en el resto) es la referencia alta. Si solo
+mejora en train, ha aprendido esos niveles, no a jugar: se dice asi.
+
+---
+
 ## PENDIENTES PARA EL PC GRANDE (al cierre del 23-09-2026) — empezar por aqui
 
 Rama `fase-6-mario`, `pytest -q` en verde (108). Nada corriendo en el portatil. Lo que el

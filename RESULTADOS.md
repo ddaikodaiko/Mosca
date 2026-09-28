@@ -1469,3 +1469,32 @@ cambia la inicializacion, el entrenamiento y las partidas de juego, no los datos
   baja por una sola partida mala en s2. En acierto la mosca es la mas baja de los cuatro
   (0,981 contra 0,983-0,989), diferencia del tamano del ruido entre semillas.
 - Sigue siendo el mismo nivel e imitacion: no dice nada de la fase 6b.
+
+
+## 28-09-2026: fase 6c, que aprenda sola — preparada, sin resultado todavia (portatil)
+
+Encargo del usuario: que juegue a Mario **aprendiendo sola** y en niveles que no ha visto.
+Se descarta imitar (a la heuristica o a una persona). Cambios, todos con su mando en el
+YAML y apagados por defecto (sin tocarlos, todo lo anterior es identico, con tests):
+
+- **Observacion con velocidad vertical y A pulsado** (`nes.motion_features`). RAM 0x009F
+  (con signo, -5 subiendo a +5 cayendo) y bit 0x80 de 0x06FC, calibrados saltando en el
+  1-1. Es la informacion que la heuristica usa y la red no veia: sin memoria no se podia
+  clonar (0,93 de acierto contra 0,98 con memoria, seccion del 24-09).
+- **Arranques en la frontera** (`nes.frontier_probability`, estilo Go-Explore). Un
+  episodio de entrenamiento puede empezar `frontier_rewind` pasos antes del punto mas
+  lejano al que la propia red llego en ese nivel. Medido: el NES es determinista, rejugar
+  espera y botones da la RAM identica byte a byte; el estado se fija con la copia de
+  seguridad del emulador. Val y test arrancan siempre en la salida (forzado y con test), y
+  el progreso de entrenamiento se informa solo con los episodios que empiezan en la salida.
+- **Entropia decreciente** (`ppo.entropy_final`), de 0,02 a 0,002.
+- **Emuladores en procesos** (`parallel_envs`). Medido con 16 entornos: 159 ms por paso
+  vectorial en serie, 48 ms en paralelo (x3,3 con 6 nucleos). Mismas semillas y mismas
+  observaciones que en serie (test).
+
+Prueba de 30 iteraciones de la mosca (`configs/mario_nes_sola.yaml`, N=500): 10-11 s por
+iteracion (recoleccion 9-11 s, actualizacion 0,4 s). Entre el 17 % y el 68 % de los
+episodios arrancan en la frontera. Progreso de val 0,101 (muestreado 0,103), entropia
+1,946 -> 1,941, **KL por actualizacion ~1e-5**. Con 30 de 1.500 iteraciones no dice nada
+del aprendizaje; el KL es lo que hay que vigilar en la corrida larga, porque es el sintoma
+de la fase 6. La corrida (mosca y MLP, 1.500 iteraciones) va a la GPU: TRASPASO.md.

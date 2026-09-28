@@ -101,6 +101,7 @@ def main() -> int:
     nes = dict(cfg.get("nes", {}))
     nes.pop("stage", None)       # el nivel lo manda --stage
     nes["max_steps"] = args.max_steps
+    nes["frontier_probability"] = 0.0   # el visor juega el nivel desde el principio
     env = NesMarioEnv(
         "train", ObservationConfig(**cfg.get("observation", {})),
         NesConfig(**nes), render_mode=None,

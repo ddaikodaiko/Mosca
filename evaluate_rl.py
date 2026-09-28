@@ -69,6 +69,7 @@ def construye_entorno(cfg: dict[str, Any], split: str = "test"):
 
         nes = dict(cfg.get("nes", {}))
         nivel = nes.pop("stage", None)
+        nes["frontier_probability"] = 0.0   # se mide siempre desde la salida del nivel
         env = NesMarioEnv("train" if nivel else split,
                           ObservationConfig(**cfg.get("observation", {})), NesConfig(**nes))
         if nivel is not None:

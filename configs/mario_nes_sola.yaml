@@ -1,0 +1,77 @@
+# Fase 6c - la mosca aprende a jugar SOLA (encargo del usuario, 28-09-2026: "que aprenda
+# sola", sin partidas humanas ni heuristica). PPO desde cero, sin imitar a nadie.
+#   python train_rl.py    --config configs/mario_nes_sola.yaml                 # en la GPU
+#   python train_rl.py    --config configs/mario_nes_sola.yaml --iterations 3  # medir coste
+#   python evaluate_rl.py --config configs/mario_nes_sola.yaml --muestrea --repeticiones 6
+#
+# Lo que la fase 6 dejo medido: PPO desde cero cae en "saltar siempre a la derecha" y no
+# sale, el MLP tampoco en el entorno propio, y el nucleo PUEDE representar una politica
+# buena (clonado). El freno es de exploracion. Tres cambios, cada uno con su mando:
+#   1. nes.motion_features: velocidad vertical y A pulsado en la observacion. Sin eso la
+#      red no puede saber si pulsar A ahora la hara saltar (hay que soltarlo entre saltos).
+#   2. nes.frontier_probability: la mitad de los episodios de entrenamiento empiezan poco
+#      antes del punto mas lejano al que ELLA MISMA ha llegado en ese nivel. Practica donde
+#      se atasca. Val y test empiezan siempre al principio.
+#   3. ppo.entropy_final: la entropia baja de 0,02 a 0,002: explora al principio, afina al final.
+#
+# "Sabe jugar" = progreso en niveles de VAL, que no entrena nunca, contra azar, salto
+# constante y la heuristica (evaluate_rl.py). Entrenar en 8 niveles y jugar bien en otros
+# es mucho mas dificil que pasarse el 1-1: si solo aprende los de train, se dice asi.
+#
+# Tamano de prototipo (N=500) a proposito: primero ver si aprende, luego escalar a 4.000.
+# mosca y MLP libre con la misma receta: si el MLP aprende y la mosca no, el freno vuelve
+# a ser el nucleo; si no aprende ninguno, la receta no basta.
+device: auto
+resume_every: 10
+env: nes
+parallel_envs: true   # un proceso por emulador: el emulador es el 90 % del tiempo
+wiring_dir: artifacts/conectoma_500_proto
+output_dir: artifacts/mario_nes_sola
+
+core:
+  n_internal_steps: 2
+  spectral_radius: 0.95
+  leak: 1.0
+
+encoder:
+  n_sensory: 56
+  n_motor: 56
+  n_shared: 15
+
+observation: {window_width: 11, window_height: 9}
+
+nes:
+  frame_skip: 4
+  max_steps: 800
+  random_noop: 20
+  reward_scale: 0.1
+  death_penalty: 5.0
+  stuck_steps: 80
+  motion_features: true
+  frontier_probability: 0.5
+  frontier_rewind: 20      # ~5 s de juego antes del punto mas lejano
+  frontier_refresh: 32     # dos casillas de mejora antes de mover el arranque
+
+ppo:
+  n_envs: 16
+  rollout_steps: 128
+  iterations: 1500     # ~3 M pasos de agente, ~12 M fotogramas. Medir antes con --iterations 3
+  epochs: 3
+  n_minibatches: 4
+  lr: 3.0e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip: 0.2
+  value_coefficient: 0.5
+  entropy_coefficient: 0.02
+  entropy_final: 0.002
+  grad_clip: 1.0
+  normalise_returns: true
+
+eval_every: 25
+eval_envs: 6
+eval_episodes: 12      # 4 por nivel de val
+test_episodes: 16
+
+models: [mosca, mlp]
+seeds: [0]

@@ -61,6 +61,8 @@ def main() -> int:
         from train_rl import load_wirings
 
         cfg = yaml.safe_load(args.config.read_text())
+        # La observacion tiene que ser la misma con la que se entreno (fase 6c).
+        env.cfg.motion_features = bool(cfg.get("nes", {}).get("motion_features", False))
         device = resolve_device(cfg.get("device", "auto"))
         modelo = carga_politica(args.checkpoint, cfg, load_wirings(cfg), device)
         estado = {"h": modelo.initial_state(1, device)}

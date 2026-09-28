@@ -23,12 +23,14 @@ Direcciones de RAM usadas (mapa estandar de SMB):
     0x001D         estado: 0 en el suelo, 1-3 en el aire o trepando
     0x0500-0x069F  mapa de casillas de las dos pantallas en memoria
     0x000F-0x0013  enemigo vivo;  0x006E-0x0072 / 0x0087-0x008B  su x;  0x00CF-0x00D3  su y
+    0x009F         velocidad vertical (con signo, -5 subiendo .. +5 cayendo)   [fase 6c]
+    0x06FC         mando: bit 0x80 = A pulsado                                  [fase 6c]
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -63,6 +65,18 @@ class NesConfig:
     death_penalty: float = 5.0
     stuck_steps: int = 80        # pasos sin avanzar antes de cortar el episodio
     stage: tuple[int, int] | None = None   # forzar un unico nivel (demo, no experimento)
+    # --- Fase 6c: que aprenda sola. Apagado por defecto: sin tocarlo, todo es como antes.
+    # Dos numeros mas en la observacion: velocidad vertical y si A esta pulsado. En SMB un
+    # salto nuevo exige SOLTAR A antes; sin esto la red no puede saber si pulsar A ahora la
+    # hara saltar (la heuristica lo sabe, y por eso sin memoria no se la podia clonar).
+    motion_features: bool = False
+    # Arranques en la frontera: con esta probabilidad, un episodio de ENTRENAMIENTO empieza
+    # `frontier_rewind` pasos antes del punto mas lejano al que la propia red ha llegado en
+    # ese nivel, en vez de al principio. Nadie le ensena nada: solo practica mas donde se
+    # atasca. Validacion y prueba empiezan siempre al principio (se fuerza a 0 fuera de train).
+    frontier_probability: float = 0.0
+    frontier_rewind: int = 20
+    frontier_refresh: int = 32   # pixeles de mejora antes de rehacer el punto de arranque
 
 
 class NesMarioEnv:
@@ -85,24 +99,78 @@ class NesMarioEnv:
         self.stages = (tuple(cfg.stage),) if cfg.stage is not None else STAGES[split]
         self._envs: dict[tuple[int, int], Any] = {}
         self.env: Any = None
+        self.frontera = cfg.frontier_probability if split == "train" else 0.0
+        # Por nivel: la partida que mas lejos llego (espera inicial, acciones, x por paso)
+        # y un emulador aparte cuyo "reset" vuelve a su punto de arranque.
+        self._mejor: dict[tuple[int, int], dict[str, Any]] = {}
+        self._arranques: dict[tuple[int, int], dict[str, Any]] = {}
+        self.desde_frontera = False
+        # Se llama con cada fotograma de NES dentro de `step`, no solo con el ultimo de los
+        # `frame_skip`. Lo usa `grabar_humano.py` para pintar a 60 fps mientras juega una
+        # persona; entrenando es None y no cuesta nada.
+        self.al_fotograma: Callable[[np.ndarray], None] | None = None
 
     @property
     def n_features(self) -> int:
-        return self.obs_cfg.n_features
+        return self.obs_cfg.n_features + (2 if self.cfg.motion_features else 0)
+
+    def _nuevo_emulador(self, stage: tuple[int, int]) -> Any:
+        import gym_super_mario_bros
+        from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
+        from nes_py.wrappers import JoypadSpace
+
+        world, level = stage
+        raw = gym_super_mario_bros.make(
+            f"SuperMarioBros-{world}-{level}-v0", render_mode=self.render_mode
+        )
+        return JoypadSpace(raw, SIMPLE_MOVEMENT)
 
     def _emulator(self, stage: tuple[int, int]) -> Any:
         """Un emulador por nivel, reutilizado: construirlo cuesta ~0,3 s."""
         if stage not in self._envs:
-            import gym_super_mario_bros
-            from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
-            from nes_py.wrappers import JoypadSpace
-
-            world, level = stage
-            raw = gym_super_mario_bros.make(
-                f"SuperMarioBros-{world}-{level}-v0", render_mode=self.render_mode
-            )
-            self._envs[stage] = JoypadSpace(raw, SIMPLE_MOVEMENT)
+            self._envs[stage] = self._nuevo_emulador(stage)
         return self._envs[stage]
+
+    def _arranque_en_frontera(self, stage: tuple[int, int]) -> dict[str, Any] | None:
+        """Emulador cuyo `reset()` deja la partida `frontier_rewind` pasos antes del punto
+        mas lejano alcanzado en `stage`.
+
+        El NES es determinista (comprobado: repetir espera y botones da la RAM identica
+        byte a byte), asi que el estado se reconstruye rejugando la mejor partida y se fija
+        con la copia de seguridad del propio emulador, que es a donde vuelve `reset()`.
+        Rejugar cuesta lo mismo que jugar (~7 ms por paso), por eso se rehace solo cuando la
+        mejor marca ha avanzado `frontier_refresh` pixeles.
+        """
+        mejor = self._mejor.get(stage)
+        if mejor is None:
+            return None
+        actual = self._arranques.get(stage)
+        if actual is not None and mejor["max_x"] - actual["max_x_ref"] < self.cfg.frontier_refresh:
+            return actual
+        xs = mejor["xs"]
+        cima = int(np.argmax(xs))                     # primer paso en el que llego a su maximo
+        inicio = max(0, cima + 1 - self.cfg.frontier_rewind)
+        if inicio == 0:
+            return None                               # la frontera esta en la salida
+        emulador = self._nuevo_emulador(stage)
+        emulador.reset()
+        for _ in range(mejor["espera"]):
+            emulador.step(0)
+        for accion in mejor["acciones"][:inicio]:
+            for _ in range(self.cfg.frame_skip):
+                _, _, terminal, truncado, _ = emulador.step(int(accion))
+                if terminal or truncado:              # no deberia pasar antes de la cima
+                    emulador.close()
+                    return None
+        emulador.unwrapped._backup()
+        if actual is not None:
+            actual["emulador"].close()
+        self._arranques[stage] = {
+            "emulador": emulador, "inicio": inicio, "max_x_ref": mejor["max_x"],
+            "max_x": int(max(xs[:inicio])), "espera": mejor["espera"],
+            "acciones": list(mejor["acciones"][:inicio]), "xs": list(xs[:inicio]),
+        }
+        return self._arranques[stage]
 
     def reset(self, seed: int) -> np.ndarray:
         """La semilla elige el nivel dentro de la particion y la espera inicial."""
@@ -112,10 +180,27 @@ class NesMarioEnv:
         self.env.reset()
         # Arranque con ruido: sin esto, un nivel fijo se puede resolver con una secuencia
         # memorizada de botones que ni siquiera mira la pantalla.
-        for _ in range(int(rng.integers(self.cfg.random_noop + 1))):
+        self._espera = int(rng.integers(self.cfg.random_noop + 1))
+        for _ in range(self._espera):
             self.env.step(0)
         self.steps = 0
         self.max_x = 0
+        self._acciones: list[int] = []
+        self._xs: list[int] = []
+        self.desde_frontera = False
+        # Solo se tira el dado si la frontera esta activa: con 0 la secuencia de la semilla
+        # es exactamente la de antes.
+        if self.frontera > 0 and rng.random() < self.frontera:
+            arranque = self._arranque_en_frontera(self.stage)
+            if arranque is not None:
+                self.env = arranque["emulador"]
+                self.env.reset()
+                self.desde_frontera = True
+                self.steps = arranque["inicio"]
+                self.max_x = arranque["max_x"]
+                self._espera = arranque["espera"]
+                self._acciones = list(arranque["acciones"])
+                self._xs = list(arranque["xs"])
         # Sin esto, un agente que se queda atascado contra una tuberia gasta los 600
         # pasos del episodio sin aprender nada. Cortar pronto multiplica la experiencia
         # util por paso de CPU, que es el recurso escaso aqui.
@@ -156,6 +241,8 @@ class NesMarioEnv:
         terminado = False
         for _ in range(self.cfg.frame_skip):
             self.frame, r, terminal, truncado, info = self.env.step(int(action))
+            if self.al_fotograma is not None:
+                self.al_fotograma(self.frame)
             recompensa += float(r)
             terminado = bool(terminal or truncado)
             if terminado:
@@ -168,6 +255,8 @@ class NesMarioEnv:
             self.stuck = 0
         else:
             self.stuck += 1
+        self._acciones.append(int(action))
+        self._xs.append(self.x)
 
         murio = bool(info.get("is_dead") or info.get("is_game_over") or terminado and not info.get("flag_get"))
         meta = bool(info.get("flag_get"))
@@ -176,6 +265,15 @@ class NesMarioEnv:
             recompensa -= self.cfg.death_penalty
         atascado = self.stuck >= self.cfg.stuck_steps
         done = bool(murio or meta or atascado or self.steps >= self.cfg.max_steps)
+        if done and self.frontera > 0 and meta:
+            # Con bandera el nivel ya no tiene frontera: vuelve a empezar siempre al principio
+            # hasta que otra partida se quede corta y marque una nueva.
+            self._mejor.pop(self.stage, None)
+        elif done and self.frontera > 0:
+            previo = self._mejor.get(self.stage)
+            if previo is None or self.max_x > previo["max_x"]:
+                self._mejor[self.stage] = {"max_x": self.max_x, "espera": self._espera,
+                                           "acciones": self._acciones, "xs": self._xs}
 
         # El final del nivel esta en x ~3.180 en casi todos los niveles de SMB; se usa el
         # maximo visto como escala para que "progreso" signifique lo mismo que en el
@@ -189,6 +287,7 @@ class NesMarioEnv:
             "pisados": 0,
             "atascado": bool(atascado),
             "nivel": f"{self.stage[0]}-{self.stage[1]}",
+            "desde_frontera": self.desde_frontera,
         }
 
     def _observe(self) -> np.ndarray:
@@ -224,12 +323,20 @@ class NesMarioEnv:
             ],
             dtype=np.float32,
         )
-        return np.concatenate([solid.ravel(), enemies.ravel(), void.ravel(), scalars])
+        partes = [solid.ravel(), enemies.ravel(), void.ravel(), scalars]
+        if self.cfg.motion_features:
+            velocidad = float(np.int8(np.uint8(self.ram[0x009F]))) / 5.0
+            a_pulsado = 1.0 if int(self.ram[0x06FC]) & 0x80 else 0.0
+            partes.append(np.array([np.clip(velocidad, -1.5, 1.5), a_pulsado], dtype=np.float32))
+        return np.concatenate(partes)
 
     def close(self) -> None:
         for env in self._envs.values():
             env.close()
+        for arranque in self._arranques.values():
+            arranque["emulador"].close()
         self._envs.clear()
+        self._arranques.clear()
 
 
 class VectorNesMario:
@@ -275,6 +382,103 @@ class VectorNesMario:
             np.asarray(dones, dtype=bool),
             infos,
         )
+
+
+def _trabajador(conexion: Any, indice: int, n_envs: int, seed_offset: int, split: str,
+                obs_cfg: ObservationConfig, cfg: NesConfig) -> None:
+    """Un emulador en su propio proceso. Misma regla de semillas que `VectorNesMario`."""
+    env = NesMarioEnv(split, obs_cfg, cfg)
+    contador = indice + seed_offset
+
+    def siguiente() -> int:
+        nonlocal contador
+        semilla, contador = contador, contador + n_envs
+        return semilla
+
+    try:
+        while True:
+            orden, dato = conexion.recv()
+            if orden == "reset":
+                conexion.send(env.reset(siguiente()))
+            elif orden == "step":
+                obs, reward, done, info = env.step(int(dato))
+                if done:
+                    obs = env.reset(siguiente())
+                conexion.send((obs, reward, done, info))
+            else:
+                break
+    finally:
+        env.close()
+        conexion.close()
+
+
+class VectorNesMarioParalelo:
+    """Como `VectorNesMario`, pero cada emulador en un proceso (fase 6c).
+
+    El emulador se lleva ~7,6 ms por paso y es el 90 % de la recoleccion; en serie, 16
+    entornos x 128 pasos son 15 s por iteracion solo de emular. Las semillas son las mismas
+    que en serie, asi que los niveles jugados no cambian. Se arranca con "spawn": hacer fork
+    de un proceso que ya ha tocado CUDA no es seguro.
+    """
+
+    def __init__(
+        self,
+        n_envs: int,
+        split: str,
+        obs_cfg: ObservationConfig = ObservationConfig(),
+        cfg: NesConfig = NesConfig(),
+        seed_offset: int = 0,
+    ) -> None:
+        import multiprocessing as mp
+
+        contexto = mp.get_context("spawn")
+        self.n_envs = n_envs
+        self._n_features = NesMarioEnv(split, obs_cfg, cfg).n_features
+        self.conexiones, self.procesos = [], []
+        for indice in range(n_envs):
+            nuestra, suya = contexto.Pipe()
+            proceso = contexto.Process(
+                target=_trabajador, args=(suya, indice, n_envs, seed_offset, split, obs_cfg, cfg),
+                daemon=True,
+            )
+            proceso.start()
+            suya.close()
+            self.conexiones.append(nuestra)
+            self.procesos.append(proceso)
+
+    @property
+    def n_features(self) -> int:
+        return self._n_features
+
+    def reset(self) -> np.ndarray:
+        for conexion in self.conexiones:
+            conexion.send(("reset", None))
+        return np.stack([conexion.recv() for conexion in self.conexiones])
+
+    def step(self, actions: np.ndarray):
+        for conexion, accion in zip(self.conexiones, actions):
+            conexion.send(("step", int(accion)))
+        observations, rewards, dones, infos = zip(*(c.recv() for c in self.conexiones))
+        return (
+            np.stack(observations),
+            np.asarray(rewards, dtype=np.float32),
+            np.asarray(dones, dtype=bool),
+            list(infos),
+        )
+
+    def close(self) -> None:
+        for conexion in self.conexiones:
+            try:
+                conexion.send(("cerrar", None))
+            except (BrokenPipeError, OSError):
+                pass
+        for proceso in self.procesos:
+            proceso.join(timeout=5)
+        self.conexiones, self.procesos = [], []
+
+    def __del__(self) -> None:
+        if getattr(self, "procesos", None):
+            self.close()
 
 
 class JugadorHeuristico:

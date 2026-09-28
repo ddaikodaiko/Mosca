@@ -63,9 +63,11 @@ def build_environments(cfg: dict[str, Any], split: str, n_envs: int):
     entre si en forma, aunque no en dificultad.
     """
     if cfg.get("env", "propio") == "nes":
-        from envs.nes_mario import NesConfig, VectorNesMario
+        from envs.nes_mario import NesConfig, VectorNesMario, VectorNesMarioParalelo
 
-        return VectorNesMario(
+        # Un proceso por emulador (fase 6c): mismas semillas y mismos niveles que en serie.
+        vector = VectorNesMarioParalelo if cfg.get("parallel_envs", False) else VectorNesMario
+        return vector(
             n_envs=n_envs,
             split=split,
             obs_cfg=ObservationConfig(**cfg.get("observation", {})),
@@ -80,6 +82,12 @@ def build_environments(cfg: dict[str, Any], split: str, n_envs: int):
         reward_cfg=RewardConfig(**cfg.get("reward", {})),
         max_steps=int(cfg.get("max_episode_steps", 1200)),
     )
+
+
+def cierra(envs: Any) -> None:
+    """Los entornos en paralelo tienen procesos que cerrar; los demas no tienen `close`."""
+    if hasattr(envs, "close"):
+        envs.close()
 
 
 @torch.no_grad()
@@ -159,15 +167,33 @@ def collect(
         advantages[t] = accumulator
         next_value = values[t]
 
+    # Los episodios que arrancan en la frontera (fase 6c) llevan el progreso inflado por
+    # construccion: el de entrenamiento se informa solo con los que empiezan al principio.
+    desde_salida = [e for e in episodes if not e.get("desde_frontera", False)]
     statistics = {
         "episodios": float(len(episodes)),
+        "episodios_frontera": float(len(episodes) - len(desde_salida)),
         "recompensa_media": float(rewards.sum().item() / max(len(episodes), 1)),
-        "progreso_medio": float(np.mean([e["progreso"] for e in episodes])) if episodes else float("nan"),
-        "tasa_meta": float(np.mean([e["meta"] for e in episodes])) if episodes else float("nan"),
+        "progreso_medio": float(np.mean([e["progreso"] for e in desde_salida])) if desde_salida else float("nan"),
+        "tasa_meta": float(np.mean([e["meta"] for e in desde_salida])) if desde_salida else float("nan"),
     }
     return Rollout(
         observations, hidden, actions, log_probs, values, advantages, advantages + values
     ), statistics
+
+
+def coeficientes(ppo: dict[str, Any], iteration: int) -> dict[str, Any]:
+    """`ppo` con el coeficiente de entropia de esta iteracion.
+
+    Con `entropy_final` (fase 6c) baja en linea recta desde `entropy_coefficient` hasta
+    ese valor a lo largo del entrenamiento: explora mucho al principio y afina al final.
+    Sin la clave es constante, como antes.
+    """
+    if "entropy_final" not in ppo:
+        return ppo
+    fraccion = iteration / max(int(ppo["iterations"]) - 1, 1)
+    inicial, final = float(ppo["entropy_coefficient"]), float(ppo["entropy_final"])
+    return {**ppo, "entropy_coefficient": inicial + (final - inicial) * fraccion}
 
 
 def ppo_update(
@@ -264,6 +290,7 @@ def evaluate(
         h = torch.where(done_mask[:, None], torch.zeros_like(h), h)
         obs = torch.as_tensor(next_obs, dtype=torch.float32, device=device)
     finished = finished[:n_episodes]
+    cierra(envs)
     return {
         "episodios": float(len(finished)),
         "progreso": float(np.mean([e["progreso"] for e in finished])) if finished else float("nan"),
@@ -357,7 +384,7 @@ def train_one(
         )
         t_recoleccion = time.time() - t_iteracion
         t_actualizacion = time.time()
-        losses = ppo_update(policy, optimiser, batch, ppo, generator)
+        losses = ppo_update(policy, optimiser, batch, coeficientes(ppo, iteration), generator)
         t_actualizacion = time.time() - t_actualizacion
         scheduler.step()
         if iteration < int(cfg.get("time_first_iterations", 3)):
@@ -397,6 +424,7 @@ def train_one(
             )
 
     guarda()
+    cierra(envs)
     reanuda.termina()
     episodios_test = int(cfg.get("test_episodes", 32))
     test = evaluate(policy, cfg, "test", episodios_test, device)

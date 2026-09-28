@@ -92,6 +92,43 @@ def demostraciones(
     return torch.tensor(np.stack(observaciones), dtype=torch.float32), torch.tensor(acciones), torch.tensor(partidas)
 
 
+def demos_humanas(
+    directorio: Path, progreso_minimo: float = 0.0, fraccion_val: float = 0.15,
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+    """Partidas de `grabar_humano.py`, solo de niveles de train. Se separan por PARTIDA, no
+    por paso: pasos vecinos de la misma partida son casi iguales y validar con ellos seria
+    medir memoria. Las ultimas `fraccion_val` partidas de cada nivel van a validacion."""
+    from envs.nes_mario import STAGES
+    from grabar_humano import carga_demos
+
+    niveles_train = {f"{w}-{l}" for w, l in STAGES["train"]}
+    partidas = carga_demos(directorio, niveles_train, progreso_minimo)
+    if not partidas:
+        raise SystemExit(f"no hay partidas de niveles de train en {directorio}")
+    por_nivel: dict[str, list[dict[str, Any]]] = {}
+    for partida in partidas:
+        por_nivel.setdefault(partida["resumen"]["nivel"], []).append(partida)
+    train, val = [], []
+    for grupo in por_nivel.values():
+        n_val = int(round(len(grupo) * fraccion_val)) if len(grupo) > 1 else 0
+        train += grupo[:len(grupo) - n_val]
+        val += grupo[len(grupo) - n_val:]
+    if not val:  # muy pocas partidas: se valida sobre la ultima, y se avisa
+        print("aviso: una partida por nivel; la validacion por acciones reutiliza la ultima")
+        val = train[-1:]
+
+    def apila(grupo: list[dict[str, Any]]) -> tuple[Tensor, Tensor, Tensor]:
+        x = torch.tensor(np.concatenate([p["obs"] for p in grupo]), dtype=torch.float32)
+        y = torch.tensor(np.concatenate([p["acciones"] for p in grupo]))
+        partida = torch.tensor(np.concatenate(
+            [np.full(len(p["acciones"]), i) for i, p in enumerate(grupo)]))
+        return x, y, partida
+
+    print(f"demos humanas: {len(train)} partidas de entrenamiento, {len(val)} de validacion,"
+          f" niveles {sorted(por_nivel)}")
+    return (*apila(train), *apila(val))
+
+
 def progreso(
     cfg: dict[str, Any], semillas: range,
     nueva: Callable[[], Callable[[Any, np.ndarray], int]], particion: str = "val",
@@ -148,6 +185,12 @@ def main() -> int:
     parser.add_argument("--ventana", type=int, default=1,
                         help="1 = sin memoria (h = 0 en cada paso). K > 1 = entrena sobre"
                              " tramos de K pasos seguidos arrastrando la h, y juega con ella")
+    parser.add_argument("--demos", type=Path, default=None,
+                        help="carpeta de partidas humanas (grabar_humano.py) en vez de la"
+                             " heuristica. Solo NES. Se valida por acciones en un 15 %% de las"
+                             " partidas y se juega en los niveles de val, que no se han grabado")
+    parser.add_argument("--progreso-minimo", type=float, default=0.0,
+                        help="con --demos, descarta partidas que no llegaron a esta fraccion")
     parser.add_argument("--salida", type=Path, default=None)
     parser.add_argument("--guarda-pesos", action="store_true",
                         help="guarda cada politica clonada en <output_dir>/clonado/, con el"
@@ -162,10 +205,14 @@ def main() -> int:
     # no se mide sobre estados que ya se usaron para elegir nada.
     semillas_juego = range(inicio_val + 5000, inicio_val + 5000 + args.niveles_juego)
 
-    x_train, y_train, p_train = demostraciones(
-        cfg, range(inicio_train, inicio_train + args.niveles_demo), "train", args.ruido)
-    x_val, y_val, p_val = demostraciones(
-        cfg, range(inicio_val, inicio_val + args.niveles_val), "val")
+    if args.demos is not None:
+        x_train, y_train, p_train, x_val, y_val, p_val = demos_humanas(
+            args.demos, args.progreso_minimo)
+    else:
+        x_train, y_train, p_train = demostraciones(
+            cfg, range(inicio_train, inicio_train + args.niveles_demo), "train", args.ruido)
+        x_val, y_val, p_val = demostraciones(
+            cfg, range(inicio_val, inicio_val + args.niveles_val), "val")
     inicios = ventanas_validas(p_train, args.ventana)
     clases = np.bincount(y_train.numpy(), minlength=N_ACTIONS).tolist()
     mayoritaria = float((y_val == y_train.mode().values).float().mean())
@@ -176,6 +223,8 @@ def main() -> int:
         "config": cfg, "config_path": str(args.config), "semilla": args.semilla,
         "pasos": args.pasos, "lr": args.lr, "lote": args.lote, "ruido": args.ruido,
         "ventana": args.ventana,
+        "demos": str(args.demos) if args.demos else None,
+        "progreso_minimo": args.progreso_minimo,
         "niveles_demo": args.niveles_demo, "clases_train": clases,
         "acierto_mayoritaria": mayoritaria, "modelos": {},
         "referencias": {
