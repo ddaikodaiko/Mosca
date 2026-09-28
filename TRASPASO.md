@@ -4,20 +4,18 @@ Lo que no cabe en el portátil y hay que ejecutar en la máquina con la RTX 3060
 código detecta el dispositivo solo (`device: auto` en todos los YAML); no hay nada que
 tocar en el código, solo ejecutar en orden.
 
-Al cierre del 22-09-2026: nada corriendo, `pytest -q` en verde (107 tests), todo el trabajo
-en la rama `fase-6-mario`.
-
-**Lo unico que quedo a medias** es el control que decide el ultimo sospechoso de la fase 6:
-el **MLP libre con la receta identica** (misma config, `model: mlp`). Se lanzo en el
-portatil y se corto; no hay config ni resultado guardados. Es el primer comando que hay que
-lanzar alli, y esta en el punto 8.
+**Al 28-09-2026 la prioridad es UNA: la fase 6c, que la mosca aprenda a jugar a Mario
+sola.** Rama `main` (o `fase-6c-sola`, es el mismo commit). Se hace lo de la seccion
+siguiente y nada mas. **No lanzar fluidos (fases 4 y 5)** ni el resto de pendientes de
+secciones antiguas: quedan aparcados hasta tener el resultado de la 6c. Todo lo que hay
+debajo de la 6c es historico.
 
 ---
 
 ## FASE 6c — QUE LA MOSCA APRENDA A JUGAR SOLA (28-09-2026) — lo nuevo, empezar por aqui
 
 Encargo del usuario: que juegue a Mario **aprendiendo sola**, sin imitar a nadie, y que
-juegue en niveles que no ha visto. Rama `fase-6-mario`, `pytest -q` en verde (128 tests).
+juegue en niveles que no ha visto. Rama `main` (= `fase-6c-sola`), `pytest -q` en verde (128 tests).
 Todo esta en `configs/mario_nes_sola.yaml`, que explica cada cambio. Resumen: la
 observacion lleva velocidad vertical y A pulsado, la mitad de los episodios de
 entrenamiento arrancan poco antes de donde mas lejos llego ella misma, la entropia baja
@@ -62,7 +60,7 @@ mejora en train, ha aprendido esos niveles, no a jugar: se dice asi.
 
 ---
 
-## PENDIENTES PARA EL PC GRANDE (al cierre del 23-09-2026) — empezar por aqui
+## PENDIENTES PARA EL PC GRANDE (al cierre del 23-09-2026) — HISTORICO, aparcado: ver la 6c arriba
 
 Rama `fase-6-mario`, `pytest -q` en verde (108). Nada corriendo en el portatil. Lo que el
 portatil dejo hecho el 23-09 esta en RESULTADOS.md (tres secciones con esa fecha). Los
@@ -506,8 +504,8 @@ de lo que ve (distancia de variacion total al promedio: mediana 0,17, maxima 0,5
    64x64: malla >=256, hiperviscosidad y ~2000 modos en el codificador. ~80x en simulación
    y ~15 GB de datos, en los seis modelos por igual.
 
-Nada de esto bloquea la **fase 4**, que es la que responde a la pregunta del proyecto: esa
-se puede lanzar (punto 5) en paralelo a resolver el punto 1.
+(Aparcado el 28-09-2026: primero la 6c.) Nada de esto bloquea la **fase 4**, que es la que responde a la pregunta del proyecto: esa
+se podria lanzar (punto 5) en paralelo a resolver el punto 1.
 
 La demo de NES (`artifacts/mario_nes_demo/mosca_s0.pt`) está reentrenada entera el
 22-09-2026: 300 iteraciones con la normalización de entrada puesta, 52 min de portátil.
