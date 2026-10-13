@@ -4,15 +4,27 @@ Lo que no cabe en el portátil y hay que ejecutar en la máquina con la RTX 3060
 código detecta el dispositivo solo (`device: auto` en todos los YAML); no hay nada que
 tocar en el código, solo ejecutar en orden.
 
-**Al 28-09-2026 la prioridad es UNA: la fase 6c, que la mosca aprenda a jugar a Mario
-sola.** Rama `main` (o `fase-6c-sola`, es el mismo commit). Se hace lo de la seccion
-siguiente y nada mas. **No lanzar fluidos (fases 4 y 5)** ni el resto de pendientes de
-secciones antiguas: quedan aparcados hasta tener el resultado de la 6c. Todo lo que hay
-debajo de la 6c es historico.
+**Al 13-10-2026 el PC con GPU NO tiene nada que ejecutar.** La fase 6c (mosca + MLP,
+1.500 iteraciones cada uno, y la evaluacion con `--muestrea --repeticiones 6`) corre en
+Google Cloud: VM `mosca-6c` (c2d-highcpu-8, `europe-west1-b`, solo CPU, ~7,5 s por
+iteracion, mas rapida que la 3060 Ti porque el cuello es el emulador). Se lanzo con
+`run_6c.sh` el 13-10-2026 a las 16:21 UTC desde `main` (2772f6d); la mosca **empezo de
+cero**, la corrida a medias del PC (iteracion ~475) se abandona. Al acabar, o si falla,
+la VM sube todo y se apaga sola. Resultados y log, que se actualizan cada 15 min, en
+`gs://mosca-runs-317660842762/6c/`:
+
+```bash
+gcloud storage cat gs://mosca-runs-317660842762/6c/6c.log | tail
+gcloud storage cp -r gs://mosca-runs-317660842762/6c/artifacts/mario_nes_sola artifacts/
+```
+
+**No retomar la 6c en el PC** (la instantanea vieja de alli es de la corrida abandonada) y
+**no lanzar fluidos (fases 4 y 5)**: siguen aparcados hasta leer el resultado de la 6c.
+Todo lo que hay debajo es historico.
 
 ---
 
-## FASE 6c — QUE LA MOSCA APRENDA A JUGAR SOLA (28-09-2026) — lo nuevo, empezar por aqui
+## FASE 6c — QUE LA MOSCA APRENDA A JUGAR SOLA (28-09-2026) — HISTORICO: ahora corre en Google Cloud, ver arriba
 
 Encargo del usuario: que juegue a Mario **aprendiendo sola**, sin imitar a nadie, y que
 juegue en niveles que no ha visto. Rama `main` (= `fase-6c-sola`), `pytest -q` en verde (128 tests).
