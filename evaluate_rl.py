@@ -60,15 +60,35 @@ def es_nes(cfg: dict[str, Any]) -> bool:
     return cfg.get("env", "propio") == "nes"
 
 
+# Niveles que no estan en ninguna particion de `envs.nes_mario.STAGES` y que por tanto la
+# red no ha visto nunca. Solo se evaluan (14-10-2026, antes de ver las replicas de la 6c).
+# Motivo: de los 7 niveles de val+test, 6 son atleticos (x-3: copas de arbol, setas,
+# puentes), un tipo que no hay en entrenamiento, y solo el 8-1 es exterior como los de
+# train. Con estos, "nivel nuevo de un tipo conocido" (exteriores: 8-1 + 3-2, 5-2, 6-2,
+# 8-2, 8-3) y "tipo nuevo" (atleticos: los seis x-3 + 7-3) tienen 6 y 7 niveles cada uno.
+# Se quedan fuera los castillos (x-4), el agua (2-2, 7-2) y el subterraneo 4-2.
+NIVELES_EXTRA: tuple[tuple[int, int], ...] = ((3, 2), (5, 2), (6, 2), (7, 3), (8, 2), (8, 3))
+TIPO_DE_NIVEL: dict[str, str] = {
+    **{f"{m}-3": "atletico" for m in range(1, 8)},
+    **{n: "exterior" for n in ("1-1", "2-1", "3-1", "3-2", "4-1", "5-1", "5-2", "6-1",
+                                "6-2", "7-1", "8-1", "8-2", "8-3")},
+}
+
+
+def niveles_de_particion(split: str) -> tuple[tuple[int, int], ...]:
+    """Los niveles de una particion del NES: las de `STAGES` mas "extra"."""
+    from envs.nes_mario import STAGES
+
+    return NIVELES_EXTRA if split == "extra" else STAGES[split]
+
+
 def nivel_previsto(split: str, semilla: int) -> str:
     """El nivel que `NesMarioEnv.reset(semilla)` va a elegir, sin arrancar el emulador.
 
     Repite el primer sorteo de `reset`. Si alguien lo cambia alli, `main` lo detecta: compara
     esta prevision con el nivel que de verdad se jugo en cada partida.
     """
-    from envs.nes_mario import STAGES
-
-    niveles = STAGES[split]
+    niveles = niveles_de_particion(split)
     mundo, nivel = niveles[int(np.random.default_rng(semilla).integers(len(niveles)))]
     return f"{mundo}-{nivel}"
 
@@ -80,11 +100,9 @@ def partidas_equilibradas(splits: list[str], por_nivel: int) -> list[Partida]:
     salen 7/4/3/2 veces y el 8-1 pesa el 44 % de la media. Aqui pesan todos igual, y cada
     nivel se juega con `por_nivel` esperas iniciales distintas.
     """
-    from envs.nes_mario import STAGES
-
     partidas: list[Partida] = []
     for split in splits:
-        cuenta = {f"{m}-{n}": 0 for m, n in STAGES[split]}
+        cuenta = {f"{m}-{n}": 0 for m, n in niveles_de_particion(split)}
         semilla = 0
         while min(cuenta.values()) < por_nivel:
             nivel = nivel_previsto(split, semilla)
@@ -156,11 +174,15 @@ def construye_entorno(cfg: dict[str, Any], split: str = "test"):
         nes = dict(cfg.get("nes", {}))
         nivel = nes.pop("stage", None)
         nes["frontier_probability"] = 0.0   # se mide siempre desde la salida del nivel
-        env = NesMarioEnv("train" if nivel else split,
+        # "extra" no existe en STAGES: es un entorno de test con otros niveles. Asi el
+        # codigo del entorno, que es el del entrenamiento, no se toca.
+        env = NesMarioEnv("train" if nivel else ("test" if split == "extra" else split),
                           ObservationConfig(**cfg.get("observation", {})), NesConfig(**nes))
         if nivel is not None:
             # La demo fija un nivel: entrena y mide en el mismo, y lo dice su YAML.
             env.stages = (tuple(nivel),)
+        elif split == "extra":
+            env.stages = NIVELES_EXTRA
         return env
     return PlatformerEnv(
         LevelConfig(**cfg.get("level", {})),
@@ -225,12 +247,13 @@ def referencias(cfg: dict[str, Any], semillas: list[Partida], semilla_azar: int)
 
 def juega_politica(
     cfg: dict[str, Any], semillas: list[Partida], politica: nn.Module, device: torch.device,
-    muestrea: bool = False,
+    muestrea: bool = False, contador: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
     """Estado oculto reiniciado en cada nivel. `muestrea` sortea en vez de coger el maximo.
 
     Las dos se informan porque no dicen lo mismo: la codiciosa se queda pegada a una
     accion constante y la muestreada conserva la exploracion que la red aprendio.
+    Si se pasa `contador`, suma en el cuantas veces elige cada accion.
     """
     estado = {"h": politica.initial_state(1, device)}
 
@@ -242,8 +265,12 @@ def juega_politica(
         tensor = torch.as_tensor(observacion, dtype=torch.float32, device=device)[None]
         logits, _, estado["h"] = politica(tensor, estado["h"])
         if muestrea:
-            return int(torch.distributions.Categorical(logits=logits).sample().item())
-        return int(logits.argmax(dim=1).item())
+            elegida = int(torch.distributions.Categorical(logits=logits).sample().item())
+        else:
+            elegida = int(logits.argmax(dim=1).item())
+        if contador is not None:
+            contador[elegida] += 1
+        return elegida
 
     return juega(cfg, semillas, accion, reinicia)
 
@@ -268,6 +295,48 @@ def carga_politica(
     return politica.to(device).eval()
 
 
+def evalua_checkpoint(trabajo: dict[str, Any]) -> dict[str, Any]:
+    """Un checkpoint en todas las partidas, `repeticiones` veces, y su politica marginal.
+
+    De nivel de modulo para poder repartir los checkpoints entre procesos (`--procesos`).
+    Cada repeticion refija la semilla con el mismo valor para todos los modelos, asi que
+    el resultado no depende de en que proceso caiga ni en que orden.
+
+    La politica **marginal** juega con las mismas frecuencias de accion que el modelo,
+    sorteadas sin mirar la pantalla. Es el control de "¿reacciona a lo que ve?": ganarle al
+    azar uniforme no lo demuestra, porque una buena proporcion de botones (mucho derecha y
+    salto, pero no siempre) ya recorre mas que el azar y que cualquier accion constante.
+    """
+    if trabajo["en_proceso"]:
+        torch.set_num_threads(1)
+    cfg = trabajo["cfg"]
+    device = torch.device(trabajo["device"])
+    politica = carga_politica(trabajo["ruta"], cfg, load_wirings(cfg), device)
+    repeticiones = max(1, int(trabajo["repeticiones"]))
+    contador = np.zeros(N_ACTIONS)
+    partidas = []
+    for repeticion in range(repeticiones):
+        torch.manual_seed(trabajo["semilla"] * 1000 + repeticion)
+        np.random.seed(trabajo["semilla"] * 1000 + repeticion)
+        partidas.append(juega_politica(
+            cfg, trabajo["semillas"], politica, device, trabajo["muestrea"], contador))
+    frecuencias = contador / contador.sum()
+    resultado: dict[str, Any] = {
+        "niveles": [p["nivel"].tolist() for p in partidas],
+        "series": {m: np.mean([p[m] for p in partidas], axis=0) for m in METRICAS},
+        "frecuencias": frecuencias.tolist(),
+    }
+    if trabajo["marginal"]:
+        marginales = []
+        for repeticion in range(repeticiones):
+            generador = np.random.default_rng(trabajo["semilla"] * 1000 + repeticion)
+            marginales.append(juega(
+                cfg, trabajo["semillas"],
+                lambda env, obs: int(generador.choice(N_ACTIONS, p=frecuencias))))
+        resultado["marginal"] = {m: np.mean([p[m] for p in marginales], axis=0) for m in METRICAS}
+    return resultado
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True, type=Path)
@@ -282,9 +351,10 @@ def main() -> int:
                              "output_dir; se puede repetir para comparar versiones")
     parser.add_argument("--semilla", type=int, default=0,
                         help="semilla del muestreo, para que la evaluacion sea reproducible")
-    parser.add_argument("--split", default="test", choices=("test", "val", "val+test"),
-                        help="niveles a jugar (NES). val es tan limpio como test si el "
-                             "checkpoint es el ultimo y no el mejor en val")
+    parser.add_argument("--split", default="test",
+                        help="niveles a jugar (NES), unidos con +: test, val, extra (p. ej. "
+                             "val+test). val es tan limpio como test si el checkpoint es el "
+                             "ultimo y no el mejor en val; extra no se usa en ninguna particion")
     parser.add_argument("--por-nivel", type=int, default=None,
                         help="NES: esta cantidad de partidas en cada nivel, en vez de "
                              "las semillas 0..n-1 (que reparten los niveles a desigual)")
@@ -294,6 +364,11 @@ def main() -> int:
                         help="en vez de `models` del YAML (que es lo que se entrena con el)")
     parser.add_argument("--semillas", nargs="+", type=int, default=None,
                         help="en vez de `seeds` del YAML")
+    parser.add_argument("--marginal", action="store_true",
+                        help="ademas, cada modelo contra su politica marginal (mismas "
+                             "frecuencias de accion, sin mirar la pantalla)")
+    parser.add_argument("--procesos", type=int, default=1,
+                        help="checkpoints evaluados a la vez, uno por proceso")
     args = parser.parse_args()
 
     cfg = yaml.safe_load(args.config.read_text())
@@ -303,6 +378,8 @@ def main() -> int:
         cfg["seeds"] = list(args.semillas)
     if not es_nes(cfg) and (args.split != "test" or args.por_nivel):
         parser.error("--split y --por-nivel solo existen en el NES")
+    if not set(args.split.split("+")) <= {"test", "val", "extra"}:
+        parser.error(f"--split {args.split}: las particiones son test, val y extra")
     if args.por_nivel and cfg.get("nes", {}).get("stage") is not None:
         parser.error("--por-nivel no tiene sentido con un nivel fijo (demo)")
     device = resolve_device(args.device or cfg.get("device", "auto"))
@@ -314,7 +391,7 @@ def main() -> int:
         print("aviso: politica muestreada con una sola partida por nivel; el ruido del"
               " muestreo es del tamano de las diferencias entre modelos")
     out_dir = Path(cfg["output_dir"])
-    splits = ["val", "test"] if args.split == "val+test" else [args.split]
+    splits = args.split.split("+")
     if args.por_nivel:
         semillas = partidas_equilibradas(splits, args.por_nivel)
     else:
@@ -332,7 +409,6 @@ def main() -> int:
         if niveles.tolist() != previstos:
             raise RuntimeError("nivel_previsto ya no coincide con NesMarioEnv.reset")
     series_por_semilla: dict[str, list[dict[str, Any]]] = {}
-    wirings = load_wirings(cfg)
     # Con --checkpoint se comparan versiones de un mismo modelo (por ejemplo el mismo
     # entrenamiento a 300 y a 900 iteraciones) contra las MISMAS lineas de referencia y
     # con la misma semilla de muestreo. Cada checkpoint entra como una fila mas, con el
@@ -344,45 +420,54 @@ def main() -> int:
             (name, [out_dir / f"{name}_s{seed}.pt" for seed in cfg["seeds"]])
             for name in cfg["models"]
         ]
-    for name, rutas in a_evaluar:
-        por_semilla = []
-        for ruta in rutas:
-            if not ruta.exists():
-                continue
-            politica = carga_politica(ruta, cfg, wirings, device)
-            # Varias partidas por nivel y media: la politica muestreada es estocastica y
-            # con una sola partida el ruido tapa cualquier diferencia entre cableados.
-            #
-            # La semilla se REFIJA antes de cada repeticion, y con el mismo valor para
-            # todos los modelos: asi la repeticion 3 de la mosca y la repeticion 3 del
-            # aleatorio arrancan del mismo estado del generador. No hace que jueguen
-            # igual —cada politica sortea de su propia distribucion— pero acopla el ruido
-            # del muestreo, que es la variabilidad que ya nos dio la vuelta al orden
-            # entre modelos una vez. Antes, cada modelo consumia un tramo distinto del
-            # generador segun el orden en que se evaluaba.
-            partidas = []
-            for repeticion in range(max(1, args.repeticiones)):
-                torch.manual_seed(args.semilla * 1000 + repeticion)
-                np.random.seed(args.semilla * 1000 + repeticion)
-                partidas.append(juega_politica(cfg, semillas, politica, device, args.muestrea))
-            if any(p["nivel"].tolist() != niveles.tolist() for p in partidas):
-                raise RuntimeError(f"{ruta.name} no jugo los mismos niveles que las referencias")
-            por_semilla.append({
-                metrica: np.mean([p[metrica] for p in partidas], axis=0) for metrica in METRICAS
-            })
-            print(f"  {ruta.stem}: progreso {por_semilla[-1]['progreso'].mean():.3f}")
-        if not por_semilla:
+    # Varias partidas por nivel y media: la politica muestreada es estocastica y con una
+    # sola partida el ruido tapa cualquier diferencia entre cableados.
+    #
+    # La semilla se REFIJA antes de cada repeticion (en `evalua_checkpoint`), y con el
+    # mismo valor para todos los modelos: asi la repeticion 3 de la mosca y la repeticion 3
+    # del aleatorio arrancan del mismo estado del generador. No hace que jueguen igual
+    # —cada politica sortea de su propia distribucion— pero acopla el ruido del muestreo,
+    # que es la variabilidad que ya nos dio la vuelta al orden entre modelos una vez.
+    # Antes, cada modelo consumia un tramo distinto del generador segun el orden en que se
+    # evaluaba. Por lo mismo da igual repartirlos entre procesos.
+    trabajos = [(name, ruta) for name, rutas in a_evaluar for ruta in rutas if ruta.exists()]
+    comun = {"cfg": cfg, "device": str(device), "semillas": semillas,
+             "repeticiones": args.repeticiones, "semilla": args.semilla,
+             "muestrea": args.muestrea, "marginal": args.marginal,
+             "en_proceso": args.procesos > 1}
+    peticiones = [{**comun, "ruta": ruta} for _, ruta in trabajos]
+    if args.procesos > 1:
+        import multiprocessing
+
+        with multiprocessing.get_context("spawn").Pool(args.procesos) as pool:
+            resultados = pool.map(evalua_checkpoint, peticiones, chunksize=1)
+    else:
+        resultados = [evalua_checkpoint(peticion) for peticion in peticiones]
+
+    frecuencias: dict[str, list[float]] = {}
+    for name, _ in a_evaluar:
+        hechos = [(ruta, r) for (n, ruta), r in zip(trabajos, resultados) if n == name]
+        if not hechos:
             print(f"  {name}: sin checkpoints en {out_dir}")
             continue
-        series_por_semilla[name] = [
-            {"checkpoint": ruta.stem, **{m: s[m].tolist() for m in METRICAS}}
-            for ruta, s in zip([r for r in rutas if r.exists()], por_semilla)
-        ]
-        # Media por nivel sobre las semillas de entrenamiento: la unidad del emparejado
-        # sigue siendo el nivel, que es lo que comparten todos los modelos.
-        series[name] = {
-            metrica: np.mean([s[metrica] for s in por_semilla], axis=0) for metrica in METRICAS
-        }
+        for ruta, r in hechos:
+            if any(jugados != niveles.tolist() for jugados in r["niveles"]):
+                raise RuntimeError(f"{ruta.name} no jugo los mismos niveles que las referencias")
+            frecuencias[ruta.stem] = r["frecuencias"]
+            print(f"  {ruta.stem}: progreso {r['series']['progreso'].mean():.3f}"
+                  + (f"  (su marginal {r['marginal']['progreso'].mean():.3f})"
+                     if "marginal" in r else ""))
+        filas = [(name, "series")] + ([(f"marginal_{name}", "marginal")] if args.marginal else [])
+        for fila, clave in filas:
+            series_por_semilla[fila] = [
+                {"checkpoint": ruta.stem, **{m: r[clave][m].tolist() for m in METRICAS}}
+                for ruta, r in hechos
+            ]
+            # Media por nivel sobre las semillas de entrenamiento: la unidad del emparejado
+            # sigue siendo el nivel, que es lo que comparten todos los modelos.
+            series[fila] = {
+                m: np.mean([r[clave][m] for _, r in hechos], axis=0) for m in METRICAS
+            }
 
     resumen = {
         nombre: {
@@ -411,6 +496,8 @@ def main() -> int:
         parejas += [(n, nombres[0]) for n in nombres[1:]]
     if not args.checkpoint:
         parejas += [("mlp", "azar"), ("mlp", "salto_cte")]
+    if args.marginal:
+        parejas += [(name, f"marginal_{name}") for name, _ in a_evaluar]
     # Tres pruebas por pareja, de la mas optimista a la mas conservadora:
     #   contrastes            por partida (la de siempre). Con varias partidas del mismo
     #                         nivel trata como independientes cosas que no lo son.
@@ -492,14 +579,18 @@ def main() -> int:
     destino.write_text(json.dumps(
         {"config": cfg, "n_niveles": n_levels, "repeticiones": args.repeticiones,
          "muestreada": bool(args.muestrea), "semilla": args.semilla,
-         "split": args.split, "por_nivel": args.por_nivel,
+         "split": args.split, "por_nivel": args.por_nivel, "marginal": bool(args.marginal),
+         "frecuencias_de_accion": frecuencias,
          "checkpoints": [str(r) for r in (args.checkpoint or [])],
          "partidas": [{"particion": split, "semilla": s, "nivel": n}
                       for (split, s), n in zip(semillas, niveles.tolist())],
          "resumen": resumen, "por_nivel": por_nivel, "contrastes": contrastes,
          "contrastes_por_nivel": contrastes_por_nivel,
          "contrastes_por_semilla": contrastes_por_semilla,
-         "series_por_semilla": series_por_semilla},
+         "series_por_semilla": series_por_semilla,
+         "series_referencias": {
+             nombre: {m: valores[m].tolist() for m in METRICAS}
+             for nombre, valores in series.items() if nombre not in series_por_semilla}},
         indent=2, ensure_ascii=False,
     ))
     print(f"\ninforme en {destino}")

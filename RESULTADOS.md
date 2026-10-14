@@ -1612,3 +1612,73 @@ acabar lanza la evaluacion final y se apaga.
   lo cumple.
 - Lo que no cambia: N = 500 es el prototipo. Escalar a 4.000 se decide despues, con este
   resultado delante.
+
+### Enmienda al plan (14-10-2026, 11:40 UTC)
+
+Escrita sin haber mirado ninguna cifra de las replicas: de las tres que habian terminado
+(aleatorio, recableado y `sin_nucleo` en s0) solo se ha mirado el codigo de salida (0) y
+que llegaron a la iteracion 1.500. La regla de decision de arriba no cambia. Se anaden dos
+controles y un analisis secundario, y la regla pasa a estar escrita como codigo.
+
+**1. Que significa "progreso" en el NES.** Es `max_x / 3180`, la distancia recorrida
+dividida por la longitud aproximada del 1-1, no la fraccion del nivel: el 8-1, por
+ejemplo, es bastante mas largo. Las comparaciones entre modelos dentro de un nivel no
+cambian; "0,265" se lee "unos 840 px", no "el 26 % del nivel".
+
+**2. Auditoria de igualdad de condiciones** (los seis modelos construidos con
+`mario_nes_sola.yaml`). Mosca, aleatorio y recableado: 27.253 parametros, 500 neuronas, 56
+sensoriales, 56 motoras y 15 compartidas en los tres. Denso: 26.945 parametros (97
+neuronas, mismos puertos). MLP: 27.343. `sin_nucleo`: 18.036, a proposito (los puertos de
+la mosca sin pesos recurrentes).
+
+**3. Control marginal (`evaluate_rl.py --marginal`).** Cada modelo contra una politica
+que pulsa los botones con **sus mismas frecuencias, sorteados sin mirar la pantalla**.
+Ganarle al azar uniforme no demuestra que la red reaccione a lo que ve: una buena
+proporcion de botones (mucho "derecha" y salto, pero no siempre) ya recorre mas que el
+azar y que cualquier accion constante. El JSON guarda tambien las frecuencias de accion de
+cada checkpoint. Piloto con la s0 y un protocolo reducido (4 partidas por nivel y 4
+repeticiones; orientativo, en el portatil):
+
+| nivel | mosca | su marginal | MLP | su marginal | azar |
+|---|---|---|---|---|---|
+| 8-1 (exterior) | **0,391** | 0,139 | **0,475** | 0,101 | 0,111 |
+| 2-3 | 0,318 | 0,322 | 0,412 | 0,362 | 0,273 |
+| otros cinco x-3 | 0,131-0,186 | 0,105-0,128 | 0,127-0,235 | 0,091-0,123 | 0,087-0,110 |
+| media de los 7 | 0,208 | 0,148 | 0,244 | 0,142 | 0,128 |
+
+Casi toda la ventaja de la mosca sobre sus propias frecuencias sale del 8-1, el unico
+nivel no visto del mismo tipo que los de entrenamiento. En los atleticos le saca de 0 a
+0,07, y en el 2-3 nada.
+
+**4. Niveles extra y analisis por tipo de nivel.** Entrenamiento son siete exteriores y
+un subterraneo (1-2). De los 7 niveles de val+test, seis son **atleticos** (x-3: copas de
+arbol, setas, puentes), un tipo que la red no ha visto nunca, y uno (8-1) es **exterior**.
+La evaluacion principal mezcla "nivel nuevo" con "tipo de nivel nuevo". Se anaden, solo
+para evaluar, los niveles que no estan en ninguna particion: los exteriores 3-2, 5-2, 6-2,
+8-2 y 8-3, y el atletico 7-3 (`evaluate_rl.NIVELES_EXTRA`, `--split extra`). El tipo esta
+comprobado con el emulador: fotograma inicial de los 32 niveles y tipo de zona en la RAM
+(0x074E: agua 0, exterior 1, subterraneo 2, castillo 3); los atleticos tambien dan 1 en
+la RAM, y se separan por la lista conocida de SMB (`evaluate_rl.TIPO_DE_NIVEL`, con test).
+No se toca el codigo del entorno: el entrenamiento sigue siendo byte a byte el de la s0.
+Asi quedan 6 exteriores no vistos (p minima por nivel 0,031) y 7 atleticos (0,016).
+
+**5. El analisis, escrito como codigo antes de los datos (`analiza_6c.py`, con tests).**
+Lee los cuatro JSON de la evaluacion final y aplica la regla. Concreta lo que el texto
+dejaba abierto:
+- Diferencia = media sobre niveles de (media de semillas de A - media de semillas de B).
+- "Semillas separadas" contra una referencia (azar, salto constante), que no tiene
+  semillas: todas las semillas del modelo del mismo lado.
+- "Dispersion entre semillas" = media de las desviaciones tipicas entre semillas de las
+  dos filas (solo las que tienen mas de una).
+- Principal: 7 niveles de val+test, Holm sobre mosca-aleatorio y mosca-recableado.
+- Secundarios, umbral 0,05: mosca contra `sin_nucleo`, denso y MLP; cada modelo contra
+  azar, salto constante y **su marginal**; y todo lo anterior por separado en los 6
+  exteriores y en los 7 atleticos (8-1 sale de la principal; el resto, de la extra).
+- "Juega": bandera en algun nivel no visto (los 13), con cualquier semilla.
+
+Salidas de la VM: `rl_evaluacion_final_{muestreada,codiciosa}.json`,
+`rl_evaluacion_final_extra_{muestreada,codiciosa}.json` y
+`analisis_6c_{muestreada,codiciosa}.json`, con el informe legible en
+`logs/analisis_6c_{muestreada,codiciosa}.md` del bucket. Lanzador `scripts/gcp/run_replicas_v4.sh`
+(cambiado en caliente con `scripts/gcp/cambia_lanzador.sh`, sin tocar los entrenamientos).
+`pytest -q`: 153 en verde.

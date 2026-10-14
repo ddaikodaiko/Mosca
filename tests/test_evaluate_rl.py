@@ -14,6 +14,8 @@ import pytest
 
 from envs.nes_mario import STAGES
 from evaluate_rl import (
+    NIVELES_EXTRA,
+    TIPO_DE_NIVEL,
     media_por_nivel,
     nivel_previsto,
     partidas_equilibradas,
@@ -94,6 +96,29 @@ def test_las_partidas_equilibradas_reparten_igual_entre_niveles(splits: list[str
     assert len(set(partidas)) == len(partidas)
 
 
+def test_los_niveles_extra_no_estan_en_ninguna_particion() -> None:
+    usados = {nivel for niveles in STAGES.values() for nivel in niveles}
+    assert not set(NIVELES_EXTRA) & usados
+    assert len(set(NIVELES_EXTRA)) == len(NIVELES_EXTRA)
+
+
+def test_todo_nivel_evaluado_tiene_tipo_y_train_es_exterior() -> None:
+    """El analisis por tipo cuenta con esto: los no vistos se reparten en exteriores
+    (como los de entrenamiento) y atleticos (un tipo que no se entrena)."""
+    evaluados = [*STAGES["val"], *STAGES["test"], *NIVELES_EXTRA]
+    tipos = [TIPO_DE_NIVEL[f"{m}-{n}"] for m, n in evaluados]
+    assert tipos.count("exterior") == 6 and tipos.count("atletico") == 7
+    entrenados = {TIPO_DE_NIVEL.get(f"{m}-{n}", "otro") for m, n in STAGES["train"]}
+    assert entrenados == {"exterior", "otro"}   # el otro es 1-2, subterraneo
+
+
+def test_las_partidas_extra_tambien_se_equilibran() -> None:
+    partidas = partidas_equilibradas(["extra"], por_nivel=3)
+    niveles = [nivel_previsto(split, semilla) for split, semilla in partidas]
+    assert sorted(set(niveles)) == sorted(f"{m}-{n}" for m, n in NIVELES_EXTRA)
+    assert all(niveles.count(nivel) == 3 for nivel in set(niveles))
+
+
 def test_las_semillas_de_siempre_no_estan_equilibradas() -> None:
     """Lo que motiva --por-nivel: las semillas 0..15 de test dan 7/4/3/2 partidas."""
     cuenta: dict[str, int] = {}
@@ -101,3 +126,77 @@ def test_las_semillas_de_siempre_no_estan_equilibradas() -> None:
         nivel = nivel_previsto("test", semilla)
         cuenta[nivel] = cuenta.get(nivel, 0) + 1
     assert sorted(cuenta.values()) == [2, 3, 4, 7]
+
+
+# --- La politica marginal y el reparto entre procesos, en el entorno propio (sin emulador).
+
+def _checkpoint_de_juguete(tmp_path, nombre: str = "mosca"):
+    """Un cableado de 40 neuronas guardado como los de la fase 2 y una politica sin entrenar."""
+    import torch
+    import yaml
+    from pathlib import Path
+
+    from envs.platformer import N_ACTIONS
+    from models.masked_policy import build_policy
+    from models.masked_rnn import Wiring
+    from tests.test_masked_rnn import toy_wiring
+
+    cableado = toy_wiring(n_neurons=40, seed=0)
+    for control in ("mosca", "aleatorio", "recableado"):
+        np.savez(tmp_path / f"{control}.npz", rows=cableado.rows, cols=cableado.cols,
+                 synapses=cableado.synapses, sign=cableado.sign)
+    cfg = yaml.safe_load(Path("configs/mario_proto.yaml").read_text())
+    cfg["wiring_dir"] = str(tmp_path)
+    cfg["output_dir"] = str(tmp_path)
+    cfg["encoder"] = {"n_sensory": 12, "n_motor": 12, "n_shared": 4}
+    cfg["max_episode_steps"] = 60
+    wirings = {c: Wiring.load(tmp_path / f"{c}.npz") for c in ("mosca", "aleatorio", "recableado")}
+    from evaluate_rl import construye_entorno
+
+    politica = build_policy(nombre, cfg, construye_entorno(cfg).n_features, N_ACTIONS, 0, wirings)
+    ruta = tmp_path / f"{nombre}_s0.pt"
+    torch.save({"modelo": nombre, "semilla": 0, "config": cfg,
+                "state_dict": politica.state_dict()}, ruta)
+    return cfg, ruta
+
+
+def _peticion(cfg, ruta, **cambios):
+    from evaluate_rl import niveles_de_test
+
+    peticion = {"cfg": cfg, "device": "cpu", "ruta": ruta,
+                "semillas": [("test", s) for s in niveles_de_test(cfg, 3)],
+                "repeticiones": 2, "semilla": 0, "muestrea": True, "marginal": True,
+                "en_proceso": False}
+    peticion.update(cambios)
+    return peticion
+
+
+def test_la_marginal_juega_con_las_frecuencias_del_modelo(tmp_path) -> None:
+    from evaluate_rl import evalua_checkpoint
+
+    cfg, ruta = _checkpoint_de_juguete(tmp_path)
+    resultado = evalua_checkpoint(_peticion(cfg, ruta))
+    frecuencias = np.asarray(resultado["frecuencias"])
+    assert frecuencias.sum() == pytest.approx(1.0)
+    assert (frecuencias >= 0).all()
+    for clave in ("series", "marginal"):
+        assert resultado[clave]["progreso"].shape == (3,)
+    # Sin --marginal no se juega
+    assert "marginal" not in evalua_checkpoint(_peticion(cfg, ruta, marginal=False))
+
+
+def test_en_procesos_da_lo_mismo_que_en_serie(tmp_path) -> None:
+    """La semilla se refija en cada repeticion: el proceso en que cae no cambia nada."""
+    import multiprocessing
+
+    from evaluate_rl import evalua_checkpoint
+
+    cfg, ruta = _checkpoint_de_juguete(tmp_path)
+    en_serie = evalua_checkpoint(_peticion(cfg, ruta))
+    with multiprocessing.get_context("spawn").Pool(2) as pool:
+        en_procesos = pool.map(evalua_checkpoint, [_peticion(cfg, ruta, en_proceso=True)] * 2)
+    for resultado in en_procesos:
+        assert resultado["frecuencias"] == en_serie["frecuencias"]
+        for clave in ("series", "marginal"):
+            for metrica, valores in en_serie[clave].items():
+                assert np.array_equal(resultado[clave][metrica], valores)

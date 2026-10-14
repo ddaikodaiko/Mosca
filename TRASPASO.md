@@ -13,15 +13,19 @@ en el bucket:
 
 - `mosca-6c` (c2d-highcpu-8, ~2,7 h por modelo) y `mosca-6c-b` (c2d-highcpu-4, ~4 h),
   creada a partir de la imagen `mosca-6c-img`. Unas 28 h en total.
-- Lanzador `~/run_replicas_v2.sh` en cada VM. La ultima en acabar lanza la evaluacion
-  final (`--split val+test --por-nivel 8`, muestreada y codiciosa) y las dos se apagan
-  solas. El plan de analisis esta fijado en RESULTADOS.md **antes** de ver las replicas.
+- Lanzador `~/run_replicas_v4.sh` en cada VM (`scripts/gcp/`). La ultima en acabar lanza
+  la evaluacion final (val+test y los niveles extra, muestreada y codiciosa, con el control
+  marginal) y `analiza_6c.py`, y las dos se apagan solas. El plan de analisis y su
+  enmienda estan fijados en RESULTADOS.md **antes** de ver las replicas. A las 11:40 UTC
+  del 14-10 iban 3 de 16; fin estimado hacia las 03:30 UTC del 15-10, mas ~40 min de
+  evaluacion. El informe legible queda en `$B/logs/analisis_6c_muestreada.md`.
 
 ```bash
 B=gs://mosca-runs-317660842762/6c-replicas
 gcloud storage ls $B/claims/ $B/hechos/              # reclamados / terminados (16 en total)
 gcloud storage cat $B/logs/mosca-6c.log $B/logs/mosca-6c-b.log
 gcloud storage cat $B/logs/<modelo>_s<semilla>.log | tail
+gcloud storage cat $B/logs/analisis_6c_muestreada.md      # el veredicto, al acabar
 gcloud storage cp -r $B/artifacts/mario_nes_sola artifacts/   # al acabar, con los JSON finales
 ```
 
