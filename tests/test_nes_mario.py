@@ -75,6 +75,19 @@ def test_los_conjuntos_de_niveles_son_disjuntos() -> None:
     assert not train & val and not train & test and not val & test
 
 
+def test_la_prevision_de_nivel_de_la_evaluacion_coincide_con_reset() -> None:
+    """`evaluate_rl.nivel_previsto` repite el primer sorteo de `reset`; si se separan, las
+    partidas "equilibradas" dejarian de estarlo sin que nadie se entere."""
+    from evaluate_rl import nivel_previsto
+
+    for split in ("val", "test"):
+        env = NesMarioEnv(split, ObservationConfig(), NesConfig(max_steps=5, random_noop=0))
+        for semilla in range(12):
+            env.reset(semilla)
+            assert nivel_previsto(split, semilla) == f"{env.stage[0]}-{env.stage[1]}"
+        env.close()
+
+
 def test_la_semilla_fija_el_nivel_y_la_espera_inicial() -> None:
     cfg = NesConfig(max_steps=20, random_noop=20)
     a = NesMarioEnv("train", ObservationConfig(), cfg)

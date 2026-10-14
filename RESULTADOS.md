@@ -1498,3 +1498,117 @@ episodios arrancan en la frontera. Progreso de val 0,101 (muestreado 0,103), ent
 1,946 -> 1,941, **KL por actualizacion ~1e-5**. Con 30 de 1.500 iteraciones no dice nada
 del aprendizaje; el KL es lo que hay que vigilar en la corrida larga, porque es el sintoma
 de la fase 6. La corrida (mosca y MLP, 1.500 iteraciones) va a la GPU: TRASPASO.md.
+
+## 14-10-2026: fase 6c, primera semilla (Google Cloud) y plan de las replicas
+
+### Corrida s0 (13-10-2026)
+
+VM `mosca-6c` (c2d-highcpu-8, solo CPU), codigo 2772f6d, de 16:21 a 20:38 UTC, salida 0,
+sin reanudaciones. Mosca 2,22 h, MLP 2,02 h. Parametros: mosca 27.253 (500 neuronas),
+MLP 27.343 (71 neuronas). Artefactos en `gs://mosca-runs-317660842762/6c/` y
+`artifacts/mario_nes_sola/` (no viajan con el repo).
+
+Entrenamiento, medias por bloques de 250 iteraciones (progreso de train: solo episodios
+que arrancan en la salida):
+
+| | 0-250 | 250-500 | 500-750 | 750-1000 | 1000-1250 | 1250-1500 |
+|---|---|---|---|---|---|---|
+| KL mosca | 7,4e-5 | 1,3e-4 | 1,5e-4 | 1,4e-4 | 7,5e-5 | 1,5e-5 |
+| KL MLP | 9,8e-4 | 1,1e-3 | 9,7e-4 | 7,1e-4 | 4,0e-4 | 7,9e-5 |
+| progreso train mosca | 0,190 | 0,248 | 0,324 | 0,379 | 0,410 | 0,448 |
+| progreso train MLP | 0,196 | 0,324 | 0,456 | 0,558 | 0,626 | 0,669 |
+
+- **El sintoma de la fase 6 no aparece.** El KL de la mosca esta un orden de magnitud por
+  encima del 1e-5 fijo de entonces; el del MLP, dos. Entropia de la mosca 1,90 -> 1,05,
+  del MLP -> 0,81.
+- **Val se estanca desde la iteracion ~750** en 0,17-0,20 (codicioso, 12 partidas en
+  1-3/3-3/5-3) en los dos modelos, mientras train sigue subiendo: lo que aprenden en los 8
+  niveles de entrenamiento se transfiere poco a los x-3. El MLP es el que mas se separa
+  (0,67 en train). Mas iteraciones no parece que vayan a cambiar val. El "mejor val", que
+  solo se registra y no elige checkpoint, fue 0,204 (mosca, it 924) y 0,197 (MLP, it 724).
+
+Evaluacion de cierre (`evaluate_rl.py --muestrea --repeticiones 6`, semillas de test 0..15):
+
+| modelo | progreso | bandera |
+|---|---|---|
+| azar | 0,135 | 0 |
+| siempre derecha | 0,078 | 0 |
+| salto constante | 0,081 | 0 |
+| **mosca** | **0,265** | 0 |
+| **MLP** | **0,333** | 0 |
+
+Mosca contra azar +0,131 (p < 0,0001), contra salto constante +0,184 (p < 0,0001), contra
+el MLP -0,068 (p = 0,0019). **Ningun modelo llega a la bandera en ningun nivel no visto.**
+
+### Tres problemas de esa evaluacion (14-10-2026)
+
+1. **Los "16 niveles" de test son 4.** En el NES la semilla elige uno de los cuatro niveles
+   de test (2-3, 4-3, 6-3, 8-1) y una espera de 0 a 20 fotogramas. Las semillas 0..15 caen
+   7/4/3/2 veces (8-1 / 6-3 / 4-3 / 2-3): el 8-1 pesa el 44 % de la media, y la prueba de
+   permutacion trata como independientes partidas del mismo nivel. **Las p de arriba estan
+   infladas.** Con el nivel como unidad y cuatro niveles, la p bilateral exacta no puede
+   bajar de 2/16 = 0,125: con el test solo, ninguna diferencia entre modelos puede salir
+   significativa.
+2. **Una sola semilla de entrenamiento.** La p = 0,0019 dice que *este* MLP juega mejor que
+   *esta* mosca en esos niveles, no que una arquitectura sea mejor que la otra. Para eso
+   la unidad tiene que ser el entrenamiento.
+3. **El ruido del muestreo da la vuelta al orden.** El test muestreado de una partida que
+   hace `train_rl.py` al acabar da mosca 0,276 y MLP 0,216; el de `evaluate_rl.py` con seis
+   repeticiones, 0,265 y 0,333. Codicioso: 0,195 y 0,289.
+
+Una evaluacion parcial con el protocolo nuevo (abajo) dio **0,198** para la mosca s0 en los
+siete niveles equilibrados, contra el 0,265 del test desequilibrado. Se corto a los 10 min
+(regla 6) antes de llegar al MLP. La completa va en la nube.
+
+### Cambios en `evaluate_rl.py` (por defecto da exactamente lo mismo que antes)
+
+- `--split val+test`. Val (1-3, 3-3, 5-3) es tan limpio como test: el checkpoint que se
+  evalua es el de la ultima iteracion, y el mejor en val solo se registra. Son 7 niveles
+  no vistos en vez de 4, y la p minima por nivel baja a 2/128 = 0,016.
+- `--por-nivel K`: las primeras K semillas de cada nivel, asi cada nivel pesa igual. En
+  cada partida se comprueba que el nivel jugado es el previsto (`nivel_previsto`, con un
+  test contra `NesMarioEnv.reset`).
+- Tres pruebas por pareja: **por partida** (la de siempre), **por nivel** (exacta, los 2^n
+  signos sobre las medias por nivel) y **por semilla** (exacta, todas las particiones de
+  las medias de cada entrenamiento). Cada una informa de la p minima que puede dar.
+- El JSON guarda cada partida y cada semilla. `--modelos`, `--semillas` y `--salida` para
+  evaluar las replicas sin tocar el YAML con el que se entrena.
+- 12 tests nuevos (`tests/test_evaluate_rl.py` y uno en `tests/test_nes_mario.py`); 140 en
+  verde.
+
+### Replicas en marcha (desde el 14-10-2026, 06:56 UTC)
+
+Los seis modelos del diseno con las semillas 0, 1 y 2, con la receta y el codigo exactos
+de la s0: 2772f6d, comprobado por sha256 de los 64 `.py`/`.yaml` y de los tres cableados
+contra el repo. Faltan 16 entrenamientos. Van en dos VMs, porque la cuenta tiene un limite
+de 12 vCPU: `mosca-6c` (8 vCPU, ~2,7 h por modelo) y `mosca-6c-b` (4 vCPU, ~4 h). Las dos
+comparten una cola en `gs://mosca-runs-317660842762/6c-replicas/`, donde cada trabajo se
+reclama de forma atomica creando un objeto. Orden: aleatorio, recableado y `sin_nucleo`
+en s0; luego los cinco en s1; luego en s2; el denso al final. Unas 28 h. La ultima VM en
+acabar lanza la evaluacion final y se apaga.
+
+### Plan de analisis (fijado antes de ver ninguna replica)
+
+- **Metrica principal:** progreso con politica muestreada en los 7 niveles no vistos
+  (val+test), 8 partidas por nivel, 6 repeticiones, semilla de muestreo 0
+  (`rl_evaluacion_final_muestreada.json`). Secundarias: politica codiciosa
+  (`rl_evaluacion_final_codiciosa.json`) y bandera.
+- **La pregunta del proyecto:** mosca contra aleatorio y contra recableado. La prediccion
+  registrada en el diseno es H0: empate.
+- **Regla de decision.** Se dice que el cableado de la mosca gana (o pierde) contra un
+  control solo si se cumplen las dos condiciones:
+  (a) p por nivel < 0,05 con correccion de Holm sobre los dos contrastes principales. Con 7
+  niveles, eso exige que la diferencia vaya en el mismo sentido en los 7 para el primer
+  contraste, o en 6 de 7 para el segundo;
+  (b) las tres semillas de la mosca quedan por encima (o por debajo) de las tres del
+  control (p por semilla = 0,1, el minimo posible con 3 + 3).
+  Si falla cualquiera de las dos, el resultado es **no resuelto a esta escala**. Solo se
+  dice "empate" si ademas la diferencia es menor que la dispersion entre semillas de un
+  mismo modelo.
+- **Secundario, con las mismas reglas y sin Holm:** mosca contra `sin_nucleo` (si no le
+  gana, el nucleo no aporta nada en esta tarea y la pregunta del cableado no tiene
+  resolucion), contra el denso y contra el MLP; cada modelo contra azar y salto constante.
+- **"Juega"**, que es el criterio para publicar: bandera en algun nivel no visto. La s0 no
+  lo cumple.
+- Lo que no cambia: N = 500 es el prototipo. Escalar a 4.000 se decide despues, con este
+  resultado delante.

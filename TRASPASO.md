@@ -4,23 +4,30 @@ Lo que no cabe en el portátil y hay que ejecutar en la máquina con la RTX 3060
 código detecta el dispositivo solo (`device: auto` en todos los YAML); no hay nada que
 tocar en el código, solo ejecutar en orden.
 
-**Al 13-10-2026 el PC con GPU NO tiene nada que ejecutar.** La fase 6c (mosca + MLP,
-1.500 iteraciones cada uno, y la evaluacion con `--muestrea --repeticiones 6`) corre en
-Google Cloud: VM `mosca-6c` (c2d-highcpu-8, `europe-west1-b`, solo CPU, ~7,5 s por
-iteracion, mas rapida que la 3060 Ti porque el cuello es el emulador). Se lanzo con
-`run_6c.sh` el 13-10-2026 a las 16:21 UTC desde `main` (2772f6d); la mosca **empezo de
-cero**, la corrida a medias del PC (iteracion ~475) se abandona. Al acabar, o si falla,
-la VM sube todo y se apaga sola. Resultados y log, que se actualizan cada 15 min, en
-`gs://mosca-runs-317660842762/6c/`:
+**Al 14-10-2026 el PC con GPU NO tiene nada que ejecutar.** La unica prioridad son las
+**replicas de la fase 6c**, y corren en Google Cloud. La s0 (mosca + MLP) termino el
+13-10-2026 (resultado en RESULTADOS.md, seccion del 14-10-2026). Desde el 14-10-2026 a las
+06:56 UTC entrenan los seis modelos del diseno con las semillas 0, 1 y 2 (faltaban 16), con
+el codigo exacto de la s0 (2772f6d), en dos VMs de `europe-west1-b` que comparten una cola
+en el bucket:
+
+- `mosca-6c` (c2d-highcpu-8, ~2,7 h por modelo) y `mosca-6c-b` (c2d-highcpu-4, ~4 h),
+  creada a partir de la imagen `mosca-6c-img`. Unas 28 h en total.
+- Lanzador `~/run_replicas_v2.sh` en cada VM. La ultima en acabar lanza la evaluacion
+  final (`--split val+test --por-nivel 8`, muestreada y codiciosa) y las dos se apagan
+  solas. El plan de analisis esta fijado en RESULTADOS.md **antes** de ver las replicas.
 
 ```bash
-gcloud storage cat gs://mosca-runs-317660842762/6c/6c.log | tail
-gcloud storage cp -r gs://mosca-runs-317660842762/6c/artifacts/mario_nes_sola artifacts/
+B=gs://mosca-runs-317660842762/6c-replicas
+gcloud storage ls $B/claims/ $B/hechos/              # reclamados / terminados (16 en total)
+gcloud storage cat $B/logs/mosca-6c.log $B/logs/mosca-6c-b.log
+gcloud storage cat $B/logs/<modelo>_s<semilla>.log | tail
+gcloud storage cp -r $B/artifacts/mario_nes_sola artifacts/   # al acabar, con los JSON finales
 ```
 
-**No retomar la 6c en el PC** (la instantanea vieja de alli es de la corrida abandonada) y
-**no lanzar fluidos (fases 4 y 5)**: siguen aparcados hasta leer el resultado de la 6c.
-Todo lo que hay debajo es historico.
+Al terminar hay que **borrar las dos VMs y la imagen** (el disco parado tambien cobra).
+**No lanzar nada de la 6c en el PC** y **no lanzar fluidos (fases 4 y 5)**: siguen
+aparcados hasta leer el resultado de las replicas. Todo lo que hay debajo es historico.
 
 ---
 
