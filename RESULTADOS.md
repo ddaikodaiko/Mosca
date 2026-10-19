@@ -1682,3 +1682,92 @@ Salidas de la VM: `rl_evaluacion_final_{muestreada,codiciosa}.json`,
 `logs/analisis_6c_{muestreada,codiciosa}.md` del bucket. Lanzador `scripts/gcp/run_replicas_v4.sh`
 (cambiado en caliente con `scripts/gcp/cambia_lanzador.sh`, sin tocar los entrenamientos).
 `pytest -q`: 153 en verde.
+
+## 19-10-2026: veredicto de la fase 6c (replicas leidas)
+
+Las 16 replicas y la evaluacion final terminaron el 15-10-2026 a las 05:07 UTC; se leyeron
+el 19-10. Informe completo en `logs/analisis_6c_{muestreada,codiciosa}.md` del bucket y en
+`artifacts/mario_nes_sola/`. Principal: 7 niveles no vistos, muestreada.
+
+| fila | progreso | por semilla |
+|---|---|---|
+| mosca | 0,195 | 0,198 0,192 0,195 |
+| aleatorio | 0,198 | 0,195 0,187 0,211 |
+| recableado | 0,203 | 0,206 0,209 0,193 |
+| denso | 0,202 | 0,222 0,184 0,200 |
+| sin_nucleo | 0,190 | 0,184 0,191 0,194 |
+| mlp | 0,213 | 0,227 0,195 0,218 |
+| azar | 0,135 | |
+| salto constante | 0,090 | |
+
+- **Pregunta del proyecto:** mosca contra aleatorio, **empate** (-0,003, p por nivel
+  0,75); contra recableado, **no resuelto** (-0,008, a favor del recableado en 5 de 7).
+  La codiciosa dice lo mismo.
+- Los seis le ganan al azar, al salto constante y **a su propia marginal** en los 7
+  niveles: miran la pantalla. Ninguno llega a la bandera en val+test salvo `sin_nucleo`
+  en el 2-3 (2 %); en el 3-2 (extra) la cogen todos, el MLP el 31 %.
+- **Limite:** `sin_nucleo` empata con la mosca (+0,005, no resuelto). La tarea apenas usa
+  la recurrencia, y entonces el nulo dice poco sobre el cableado.
+- **Por que no juega mejor:** en entrenamiento el progreso sube hasta el final (mosca s1
+  0,39-0,58, MLP s1 0,62-0,69) y en validacion se congela en ~0,16 desde la iteracion
+  ~450. Con 8 niveles de entrenamiento se los aprende de memoria. El NES no tiene niveles
+  suficientes para arreglarlo.
+
+## 19-10-2026: pilotos en el entorno procedural (portatil, N=500, una semilla)
+
+Idea: el entorno propio tiene niveles infinitos, que es lo que le falto a la 6c. Receta
+de PPO de la 6c (16 x 128, entropia 0,02 -> 0,002, critico normalizado), 300 iteraciones,
+mosca y MLP, evaluacion codiciosa en 200 niveles de test.
+
+| piloto | mosca | MLP | mejor constante | heuristica |
+|---|---|---|---|---|
+| 1. niveles de 60 | 0,845 / 69,5 % | 0,847 / 69,5 % | 0,809 / 67 % | 0,968 / 92,5 % |
+| 2. 160, huecos 0,35 | 0,460 / 13 % | 0,465 / 14,5 % | 0,383 / 10 % | 0,780 / 56 % |
+| 3. 160 + soltar para saltar | 0,085 / 0 % | 0,130 / 0 % | 0,106 / 0 % | 0,758 / 54,5 % |
+
+(progreso / metas; en el 3 el azar saca 0,230.)
+
+- En 1 y 2 la mosca y el MLP pulsan "derecha + salto + carrera" en el 93 % de los pasos.
+  En este motor mantener el salto rebota en cada aterrizaje, asi que esa constante es casi
+  buena sin mirar nada. **No estaba en las referencias**: `salto_corriendo` anadida a
+  `evaluate_rl.py`. La mosca de la fase 6 (0,808) era exactamente esa constante (0,809).
+- `release_to_jump` (regla del NES: hay que soltar el salto para repetirlo, y el boton
+  entra en la observacion) hunde todas las constantes. Apagada, el motor da trayectorias
+  identicas bit a bit (huella sha256 antes y despues), y tiene tests.
+- Con la regla, desde cero no aprende nada en 300 iteraciones. La 6c del NES estaba igual
+  en la iteracion 300.
+- **Clonado de la heuristica + PPO desde ahi** (`clonado_rl.py --ruido 0.1 --guarda-pesos`,
+  `train_rl.py --desde`): mosca clonada 0,294 / 1,5 %, **afinada 0,431 / 10 %** (+0,137
+  por PPO, p < 1e-4); MLP clonado 0,570 / 23 %, afinado 0,573 / 27 %. Primera vez que la
+  mosca juega niveles no vistos por encima de todas las referencias salvo la maestra. Una
+  semilla y sin controles de cableado: piloto.
+
+## 19-10-2026: fase 6d, plan de analisis registrado antes de los datos
+
+Tarea: entorno propio, niveles de `mario.yaml` (160 casillas), `release_to_jump: true`,
+N = 500 (`configs/mario_proto_6c_soltar.yaml`). Seis modelos x semillas 0, 1, 2. Por
+semilla: clonado de la heuristica (`--ruido 0.1`, 1.500 pasos supervisados, 300 niveles de
+demostracion) y PPO desde el clonado, 300 iteraciones. Mismo codigo, mismas semillas y
+mismo presupuesto para los seis. Las demostraciones son las mismas en las tres
+semillas (niveles de train 0-299, mismo ruido): la semilla cambia la inicializacion,
+el orden de los lotes y todo el PPO.
+
+- **Metrica y niveles:** progreso en 200 niveles de test (semillas 3.000.000-3.000.199,
+  disjuntas de train y val), politica **codiciosa** (determinista: sin ruido de muestreo).
+  Secundaria: muestreada con 3 repeticiones por nivel.
+- **Principal:** modelos *afinados* (clonado + PPO). Mosca contra aleatorio y mosca contra
+  recableado, con Holm sobre los dos.
+- **Regla de decision** (la de la 6c, adaptada a 200 niveles independientes): gana o
+  pierde solo si (a) p por nivel < 0,05 con Holm, y (b) las tres semillas de la mosca
+  quedan del mismo lado que las tres del control (p por semilla 0,1). Si falla cualquiera,
+  **no resuelto**. "Empate" solo si ademas la diferencia es menor que la dispersion entre
+  semillas.
+- **Secundarios** (umbral 0,05, sin Holm): mosca contra `sin_nucleo`, denso y MLP; cada
+  modelo contra azar y `salto_corriendo`; las mismas comparaciones en los modelos solo
+  clonados, para separar "imita mejor" de "aprende mejor"; y la ganancia por PPO
+  (afinado - clonado) de cada modelo.
+- **"Juega":** meta en algun nivel de test, y ganarle al azar y a la mejor constante.
+- Lo que este plan **no** puede decir: nada sobre aprender sin maestra (hay imitacion
+  delante), ni nada a N = 4.000.
+- La regla se aplica a mano sobre `contrastes_por_nivel` y `contrastes_por_semilla` de
+  `evaluate_rl.py`. Si hay que cambiar algo, va como enmienda fechada aparte.

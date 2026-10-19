@@ -179,7 +179,17 @@ class RewardConfig:
 
 
 class PlatformerEnv:
-    """Un episodio de plataformas. Sin dependencias de gym: `reset` / `step` y ya."""
+    """Un episodio de plataformas. Sin dependencias de gym: `reset` / `step` y ya.
+
+    `release_to_jump` (19-10-2026) copia la regla del NES: para volver a saltar hay que
+    soltar el boton. Sin ella, mantener "derecha + salto + carrera" rebota en cada
+    aterrizaje y es una politica casi buena sin mirar nada: en niveles de 160 casillas
+    llega a la meta el 17 % de las veces, y PPO cae en ella con la mosca y con el MLP
+    (93 % de los pasos). Con la regla, la mejor constante baja a 0,106 de progreso y 0 %
+    de metas, y la heuristica se queda en 0,736 y 53 %. Activarla anade a la observacion
+    un escalar, el boton de salto pulsado, como `motion_features` en el NES: sin el, una
+    red sin memoria no puede saber si le toca soltar. Apagada, todo es bit a bit igual.
+    """
 
     def __init__(
         self,
@@ -187,16 +197,18 @@ class PlatformerEnv:
         obs_cfg: ObservationConfig = ObservationConfig(),
         reward_cfg: RewardConfig = RewardConfig(),
         max_steps: int = 1200,
+        release_to_jump: bool = False,
     ) -> None:
         self.level_cfg = level_cfg
         self.obs_cfg = obs_cfg
         self.reward_cfg = reward_cfg
         self.max_steps = max_steps
+        self.release_to_jump = release_to_jump
         self.level: Level | None = None
 
     @property
     def n_features(self) -> int:
-        return self.obs_cfg.n_features
+        return self.obs_cfg.n_features + (1 if self.release_to_jump else 0)
 
     def reset(self, seed: int) -> np.ndarray:
         self.level = generate_level(seed, self.level_cfg)
@@ -204,6 +216,7 @@ class PlatformerEnv:
         self.vx = 0.0
         self.vy = 0.0
         self.on_ground = True
+        self.jump_held = False
         self.steps = 0
         self.max_x = self.x
         self.enemy_pos = self.level.enemies.copy()
@@ -244,7 +257,7 @@ class PlatformerEnv:
             self.vx -= np.sign(self.vx) * min(FRICTION, abs(self.vx))
         else:
             self.vx += np.clip(target - self.vx, -ACCELERATION, ACCELERATION)
-        if jump and self.on_ground:
+        if jump and self.on_ground and not (self.release_to_jump and self.jump_held):
             self.vy = -JUMP_VELOCITY
             self.on_ground = False
         elif not jump and self.vy < 0:
@@ -309,6 +322,7 @@ class PlatformerEnv:
         assert level is not None, "hay que llamar a reset antes que a step"
         direction, jump, run = ACTIONS[int(action)]
         self._move(direction, bool(jump), bool(run))
+        self.jump_held = bool(jump)
         self._move_enemies()
         stomped, touched = self._collide_enemies()
         self.steps += 1
@@ -373,7 +387,8 @@ class PlatformerEnv:
                 1.0 if self.on_ground else 0.0,
                 (level.goal_x - self.x) / level.goal_x,
                 1.0 - self.steps / self.max_steps,
-            ],
+            ]
+            + ([1.0 if self.jump_held else 0.0] if self.release_to_jump else []),
             dtype=np.float32,
         )
         return np.concatenate([solid.ravel(), enemies.ravel(), void.ravel(), scalars])
@@ -412,13 +427,15 @@ class VectorPlatformer:
         obs_cfg: ObservationConfig = ObservationConfig(),
         reward_cfg: RewardConfig = RewardConfig(),
         max_steps: int = 1200,
+        release_to_jump: bool = False,
     ) -> None:
         low, high = seeds.range(split)
         self.n_envs = n_envs
         self.split = split
         self.low, self.high = low, high
         self.envs = [
-            PlatformerEnv(level_cfg, obs_cfg, reward_cfg, max_steps) for _ in range(n_envs)
+            PlatformerEnv(level_cfg, obs_cfg, reward_cfg, max_steps, release_to_jump)
+            for _ in range(n_envs)
         ]
         self.counters = np.arange(n_envs, dtype=np.int64)
 
@@ -484,6 +501,10 @@ def scripted_action(env: PlatformerEnv) -> int:
         for i in np.flatnonzero(env.enemy_alive)
     )
     if (gap_ahead or wall_ahead or enemy_ahead) and env.on_ground:
+        # Con `release_to_jump`, si el boton sigue pulsado del salto anterior hay que
+        # soltarlo un paso antes de poder saltar otra vez. Sin la regla no cambia nada.
+        if env.release_to_jump and env.jump_held:
+            return 2      # derecha + carrera: suelta el salto
         return 4          # derecha + salto + carrera
     if not env.on_ground and (gap_ahead or wall_ahead):
         return 4          # mantener el boton mientras sube

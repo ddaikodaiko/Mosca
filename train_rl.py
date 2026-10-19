@@ -81,6 +81,7 @@ def build_environments(cfg: dict[str, Any], split: str, n_envs: int):
         obs_cfg=ObservationConfig(**cfg.get("observation", {})),
         reward_cfg=RewardConfig(**cfg.get("reward", {})),
         max_steps=int(cfg.get("max_episode_steps", 1200)),
+        release_to_jump=bool(cfg.get("release_to_jump", False)),
     )
 
 

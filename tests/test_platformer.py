@@ -207,3 +207,68 @@ def test_las_acciones_cubren_los_cuatro_botones_del_diseno() -> None:
     direcciones = {d for d, _, _ in ACTIONS}
     assert direcciones == {-1, 0, 1}
     assert any(j for _, j, _ in ACTIONS) and any(r for _, _, r in ACTIONS)
+
+
+def _despegues(env: PlatformerEnv, acciones: list[int]) -> int:
+    """Cuantas veces pasa de estar en el suelo a subir."""
+    despegues = 0
+    for accion in acciones:
+        en_suelo = env.on_ground
+        env.step(accion)
+        despegues += int(en_suelo and env.vy < 0)
+    return despegues
+
+
+def test_soltar_para_saltar_mantener_el_boton_salta_una_sola_vez() -> None:
+    """La regla del NES: con el boton mantenido no se rebota en cada aterrizaje."""
+    salto_en_el_sitio = 6
+    assert ACTIONS[salto_en_el_sitio] == (0, 1, 0)
+    sin_regla = PlatformerEnv(SMALL, max_steps=200)
+    sin_regla.reset(0)
+    con_regla = PlatformerEnv(SMALL, max_steps=200, release_to_jump=True)
+    con_regla.reset(0)
+    assert _despegues(sin_regla, [salto_en_el_sitio] * 150) > 3
+    assert _despegues(con_regla, [salto_en_el_sitio] * 150) == 1
+
+
+def test_soltar_para_saltar_soltando_un_paso_se_vuelve_a_saltar() -> None:
+    env = PlatformerEnv(SMALL, max_steps=200, release_to_jump=True)
+    env.reset(0)
+    assert _despegues(env, [6] * 40) == 1        # ya ha aterrizado y sigue pulsado
+    assert env.on_ground
+    assert _despegues(env, [0] + [6] * 5) == 1   # suelta un paso y salta otra vez
+
+
+def test_soltar_para_saltar_pone_el_boton_en_la_observacion() -> None:
+    sin_regla = PlatformerEnv(SMALL, max_steps=50)
+    env = PlatformerEnv(SMALL, max_steps=50, release_to_jump=True)
+    assert env.n_features == sin_regla.n_features + 1
+    assert env.reset(0).shape == (env.n_features,) and env.reset(0)[-1] == 0.0
+    assert env.step(6)[0][-1] == 1.0
+    assert env.step(0)[0][-1] == 0.0
+    vector = VectorPlatformer(2, "train", SeedRanges(), SMALL, max_steps=20, release_to_jump=True)
+    assert vector.reset().shape == (2, env.n_features)
+
+
+def test_soltar_para_saltar_deja_sin_valor_a_la_constante_y_no_a_la_heuristica() -> None:
+    """Por eso existe la regla: medido en 100 niveles de 160 casillas, la mejor constante
+    pasa de 17 % de metas a 0 % y la heuristica se queda en 53 %."""
+    from envs.platformer import scripted_action
+
+    cfg = LevelConfig(width=160, height=14)
+
+    def corre(accion) -> float:
+        metas = []
+        for seed in range(3_000_000, 3_000_020):
+            env = PlatformerEnv(cfg, max_steps=1200, release_to_jump=True)
+            env.reset(seed)
+            done = False
+            while not done:
+                _, _, done, info = env.step(accion(env))
+            metas.append(info["meta"])
+        return float(np.mean(metas))
+
+    constante = max(corre(lambda env: 3), corre(lambda env: 4))
+    heuristica = corre(scripted_action)
+    assert constante <= 0.05, f"saltar sin mirar aun termina el {constante:.0%}"
+    assert heuristica >= 0.3, f"la heuristica solo termina el {heuristica:.0%}"

@@ -57,6 +57,7 @@ def crea_entorno(cfg: dict[str, Any], particion: str = "train") -> Any:
         ObservationConfig(**cfg.get("observation", {})),
         RewardConfig(**cfg.get("reward", {})),
         int(cfg.get("max_episode_steps", 1200)),
+        bool(cfg.get("release_to_jump", False)),
     )
 
 

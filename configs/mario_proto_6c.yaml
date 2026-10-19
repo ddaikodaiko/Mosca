@@ -1,0 +1,69 @@
+# Piloto (19-10-2026): la receta de PPO de la fase 6c sobre el entorno PROCEDURAL.
+#
+# Por que: en la 6c el progreso en niveles de entrenamiento sube hasta el final y el de
+# validacion se congela hacia la iteracion 450 (mosca s1: 0,39-0,58 contra 0,16; MLP s1:
+# 0,62-0,69 contra 0,17). Con 8 niveles de entrenamiento se los aprende de memoria. Aqui
+# cada episodio es un nivel nuevo y no hay nada que memorizar.
+#
+# Mismos niveles, observacion y recompensa que `mario_proto.yaml` (la fase 6 que no salio
+# del salto constante), para que la comparacion con aquel fracaso sea directa. Lo que
+# cambia es PPO, copiado de `mario_nes_sola.yaml`: 16 entornos x 128 pasos, entropia de
+# 0,02 a 0,002 y critico en escala normalizada. La velocidad y el "en el suelo" ya venian
+# en la observacion de este entorno; el arranque en la frontera no se porta porque con
+# niveles que no se repiten no hay frontera que recordar.
+#
+# Es un piloto de un solo modelo y una semilla: dice si merece la pena, no responde a nada.
+device: auto
+resume_every: 20
+wiring_dir: artifacts/conectoma_500_proto
+output_dir: artifacts/mario_proto_6c
+
+core:
+  n_internal_steps: 2
+  spectral_radius: 0.95
+  leak: 1.0
+
+encoder:
+  n_sensory: 56
+  n_motor: 56
+  n_shared: 15
+
+level:
+  width: 60
+  height: 12
+  gap_probability: 0.20
+  pipe_probability: 0.08
+  enemy_probability: 0.04
+
+observation: {window_width: 11, window_height: 9}
+reward: {progress: 1.0, step_cost: 0.02, death: 5.0, goal: 10.0, stomp: 1.0}
+max_episode_steps: 400
+
+level_seeds:
+  train: [0, 1000000]
+  val: [2000000, 2010000]
+  test: [3000000, 3010000]
+
+ppo:
+  n_envs: 16
+  rollout_steps: 128
+  iterations: 300      # 1,3 s por iteracion en el portatil: ~8 min con las evaluaciones
+  epochs: 3
+  n_minibatches: 4
+  lr: 3.0e-4
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip: 0.2
+  value_coefficient: 0.5
+  entropy_coefficient: 0.02
+  entropy_final: 0.002
+  grad_clip: 1.0
+  normalise_returns: true
+
+eval_every: 25
+eval_envs: 8
+eval_episodes: 16
+test_episodes: 32
+
+models: [mosca]
+seeds: [0]

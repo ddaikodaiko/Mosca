@@ -16,6 +16,11 @@ Las tres referencias, sin las cuales el numero de un modelo no se puede leer:
                 degenerada a la que PPO cae solo, y en niveles de 160 casillas ya saca
                 0,38 de progreso y llega a la meta el 8 % de las veces. Un modelo que no
                 le gane no ha aprendido a jugar, ha aprendido a saltar sin mirar.
+  salto_corriendo  "derecha + salto + carrera" sin soltar (solo en el entorno propio; en
+                el NES `salto_cte` ya lleva B). Anadida el 19-10-2026: es la constante
+                mas fuerte del entorno propio (niveles de 60: 0,809 y 67 % de metas,
+                contra 0,802 y 61,5 % de `salto_cte`), y la politica a la que llegaron
+                la mosca y el MLP del piloto, que la pulsaban en el 93 % de los pasos.
   heuristica    correr y saltar lo que hay delante, escrita a mano. Referencia superior,
                 como el FNO en fluidos.
 """
@@ -189,6 +194,7 @@ def construye_entorno(cfg: dict[str, Any], split: str = "test"):
         ObservationConfig(**cfg.get("observation", {})),
         RewardConfig(**cfg.get("reward", {})),
         max_steps=int(cfg.get("max_episode_steps", 1200)),
+        release_to_jump=bool(cfg.get("release_to_jump", False)),
     )
 
 
@@ -241,6 +247,7 @@ def referencias(cfg: dict[str, Any], semillas: list[Partida], semilla_azar: int)
         "salto_cte": juega(cfg, semillas, lambda env, obs: salto),
     }
     if not es_nes(cfg):
+        lineas["salto_corriendo"] = juega(cfg, semillas, lambda env, obs: 4)
         lineas["heuristica"] = juega(cfg, semillas, lambda env, obs: scripted_action(env))
     return lineas
 
@@ -492,10 +499,13 @@ def main() -> int:
         # Comparando versiones: cada una contra las dos lineas que deciden, y las demas
         # contra la primera, que es la referencia de "lo que habia antes".
         nombres = [ruta.stem for ruta in args.checkpoint]
-        parejas = [(n, linea) for n in nombres for linea in ("salto_cte", "azar")]
+        lineas = ("salto_cte", "azar") + (() if es_nes(cfg) else ("salto_corriendo",))
+        parejas = [(n, linea) for n in nombres for linea in lineas]
         parejas += [(n, nombres[0]) for n in nombres[1:]]
     if not args.checkpoint:
         parejas += [("mlp", "azar"), ("mlp", "salto_cte")]
+        if not es_nes(cfg):
+            parejas += [("mosca", "salto_corriendo"), ("mlp", "salto_corriendo")]
     if args.marginal:
         parejas += [(name, f"marginal_{name}") for name, _ in a_evaluar]
     # Tres pruebas por pareja, de la mas optimista a la mas conservadora:
