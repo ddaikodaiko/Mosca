@@ -4,6 +4,21 @@ Lo que no cabe en el portátil y hay que ejecutar en la máquina con la RTX 3060
 código detecta el dispositivo solo (`device: auto` en todos los YAML); no hay nada que
 tocar en el código, solo ejecutar en orden.
 
+**Al 19-10-2026: la 6c ha terminado (veredicto en RESULTADOS.md) y corre la fase 6d en
+Google Cloud.** Clonado de la heuristica + PPO desde el clonado, seis modelos x semillas
+0-2, entorno propio con `release_to_jump`, en la VM `mosca-6c` (8 vCPU), con el codigo de
+`af21c4f` y el plan de analisis ya escrito en RESULTADOS.md. Lanzador
+`scripts/gcp/run_6d.sh`; la VM se apaga sola. El PC sigue sin nada que ejecutar.
+
+```bash
+B=gs://mosca-runs-317660842762/6d
+gcloud storage cat $B/logs/vm.log | tail                     # por donde va
+gcloud storage cp -r $B/artifacts artifacts/mario_proto_6c_soltar_gcp   # al acabar
+```
+
+Al terminar la 6d hay que **borrar las dos VMs y la imagen** (el disco parado tambien
+cobra), salvo que se vayan a reutilizar.
+
 **Al 14-10-2026 el PC con GPU NO tiene nada que ejecutar.** La unica prioridad son las
 **replicas de la fase 6c**, y corren en Google Cloud. La s0 (mosca + MLP) termino el
 13-10-2026 (resultado en RESULTADOS.md, seccion del 14-10-2026). Desde el 14-10-2026 a las
