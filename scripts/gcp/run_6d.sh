@@ -53,15 +53,27 @@ for s in 0 1 2; do
         --semilla $s --salida $D/clonado_s$s.json > ~/logs6d/clonado_s$s.log 2>&1 &
     CLONADOS+=($!)
 done
-wait "${CLONADOS[@]}"
-ls $D/clonado/*.pt | wc -l
+# Un trabajo que falle no puede pasar en silencio: evaluate_rl.py se salta los
+# checkpoints que no existen y el informe saldria con menos semillas sin avisar. Si
+# algo falla, `exit 1` y el trap sube lo que haya y apaga.
+for p in "${CLONADOS[@]}"; do
+    wait "$p" || { echo "!! un clonado termino con error"; exit 1; }
+done
+cuenta() {
+    local n
+    n=$(ls "$1"/*_s?.pt 2>/dev/null | wc -l)
+    echo "   $n checkpoints en $1"
+    [ "$n" -eq 18 ] || { echo "!! faltan checkpoints en $1"; exit 1; }
+}
+cuenta $D/clonado
 sube >/dev/null 2>&1
 
 # 2. PPO desde el clonado: 18 trabajos, $N a la vez. Salida en $D/desde_clonado/.
 echo "== afinado $(date -Is) =="
 for s in 0 1 2; do for m in $MODELOS; do echo "$m $s"; done; done |
-    xargs -P "$N" -L 1 bash -c '.venv/bin/python -u train_rl.py --config '"$CFG"' --model $0 --seed $1 --desde '"$D"'/clonado/$0_s$1.pt > ~/logs6d/afinado_$0_s$1.log 2>&1; echo "   $0 s$1 codigo $?"'
-ls $D/desde_clonado/*_s?.pt | wc -l
+    xargs -P "$N" -L 1 bash -c '.venv/bin/python -u train_rl.py --config '"$CFG"' --model $0 --seed $1 --desde '"$D"'/clonado/$0_s$1.pt > ~/logs6d/afinado_$0_s$1.log 2>&1; c=$?; echo "   $0 s$1 codigo $c"; exit $c' ||
+    { echo "!! algun afinado termino con error"; exit 1; }
+cuenta $D/desde_clonado
 sube >/dev/null 2>&1
 
 # 3. Evaluacion: 200 niveles de test, mismos niveles para todos.
@@ -69,8 +81,8 @@ echo "== evaluacion $(date -Is) =="
 sed "s|^output_dir: .*|output_dir: $D/desde_clonado|" $CFG > /tmp/eval_afinado.yaml
 sed "s|^output_dir: .*|output_dir: $D/clonado|" $CFG > /tmp/eval_clonado.yaml
 COMUN="--modelos $MODELOS --semillas 0 1 2 --levels 200 --procesos $N"
-$PY evaluate_rl.py --config /tmp/eval_afinado.yaml $COMUN --salida eval_afinado_codiciosa.json > ~/logs6d/eval_afinado_codiciosa.log 2>&1
-$PY evaluate_rl.py --config /tmp/eval_clonado.yaml $COMUN --salida eval_clonado_codiciosa.json > ~/logs6d/eval_clonado_codiciosa.log 2>&1
+$PY evaluate_rl.py --config /tmp/eval_afinado.yaml $COMUN --salida eval_afinado_codiciosa.json > ~/logs6d/eval_afinado_codiciosa.log 2>&1 || exit 1
+$PY evaluate_rl.py --config /tmp/eval_clonado.yaml $COMUN --salida eval_clonado_codiciosa.json > ~/logs6d/eval_clonado_codiciosa.log 2>&1 || exit 1
 sube >/dev/null 2>&1
-$PY evaluate_rl.py --config /tmp/eval_afinado.yaml $COMUN --muestrea --repeticiones 3 --semilla 0 --salida eval_afinado_muestreada.json > ~/logs6d/eval_afinado_muestreada.log 2>&1
+$PY evaluate_rl.py --config /tmp/eval_afinado.yaml $COMUN --muestrea --repeticiones 3 --semilla 0 --salida eval_afinado_muestreada.json > ~/logs6d/eval_afinado_muestreada.log 2>&1 || exit 1
 echo "== evaluacion termina $(date -Is) =="
