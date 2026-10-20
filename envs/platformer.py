@@ -206,6 +206,10 @@ class PlatformerEnv:
         self.release_to_jump = release_to_jump
         self.level: Level | None = None
 
+    @classmethod
+    def from_config(cls, cfg: dict[str, Any]) -> "PlatformerEnv":
+        return cls(**_options_from_config(cfg))
+
     @property
     def n_features(self) -> int:
         return self.obs_cfg.n_features + (1 if self.release_to_jump else 0)
@@ -411,6 +415,21 @@ class SeedRanges:
         return cls(**{k: tuple(v) for k, v in section.items()})
 
 
+def _options_from_config(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Las opciones del entorno que salen del YAML, en un solo sitio.
+
+    Clonado, entrenamiento y evaluacion tienen que jugar con las mismas reglas; si una
+    opcion nueva se leyera solo en uno de ellos, jugarian a juegos distintos sin avisar.
+    """
+    return {
+        "level_cfg": LevelConfig(**cfg.get("level", {})),
+        "obs_cfg": ObservationConfig(**cfg.get("observation", {})),
+        "reward_cfg": RewardConfig(**cfg.get("reward", {})),
+        "max_steps": int(cfg.get("max_episode_steps", 1200)),
+        "release_to_jump": bool(cfg.get("release_to_jump", False)),
+    }
+
+
 class VectorPlatformer:
     """`n_envs` episodios en paralelo, con reinicio automatico y semillas sin repetir.
 
@@ -438,6 +457,10 @@ class VectorPlatformer:
             for _ in range(n_envs)
         ]
         self.counters = np.arange(n_envs, dtype=np.int64)
+
+    @classmethod
+    def from_config(cls, cfg: dict[str, Any], n_envs: int, split: str) -> "VectorPlatformer":
+        return cls(n_envs, split, SeedRanges.from_config(cfg), **_options_from_config(cfg))
 
     @property
     def n_features(self) -> int:

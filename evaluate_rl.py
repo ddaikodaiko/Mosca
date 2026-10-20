@@ -42,10 +42,8 @@ from torch import nn
 from data.spectral import resolve_device
 from envs.platformer import (
     N_ACTIONS,
-    LevelConfig,
     ObservationConfig,
     PlatformerEnv,
-    RewardConfig,
     SeedRanges,
     scripted_action,
 )
@@ -189,13 +187,7 @@ def construye_entorno(cfg: dict[str, Any], split: str = "test"):
         elif split == "extra":
             env.stages = NIVELES_EXTRA
         return env
-    return PlatformerEnv(
-        LevelConfig(**cfg.get("level", {})),
-        ObservationConfig(**cfg.get("observation", {})),
-        RewardConfig(**cfg.get("reward", {})),
-        max_steps=int(cfg.get("max_episode_steps", 1200)),
-        release_to_jump=bool(cfg.get("release_to_jump", False)),
-    )
+    return PlatformerEnv.from_config(cfg)
 
 
 def juega(

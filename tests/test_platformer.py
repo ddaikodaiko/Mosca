@@ -26,6 +26,24 @@ from envs.platformer import (
 SMALL = LevelConfig(width=60, height=12)
 
 
+def _fraccion_de_metas(accion, release_to_jump: bool = False) -> float:
+    """Fraccion de metas de una politica en 20 niveles de test de 160 casillas.
+
+    Los dos tests de margen la comparten: si cada uno tuviera su copia, cambiar los
+    niveles o el limite de pasos en uno solo los haria medir cosas distintas sin avisar.
+    """
+    cfg = LevelConfig(width=160, height=14)
+    metas = []
+    for seed in range(3_000_000, 3_000_020):
+        env = PlatformerEnv(cfg, max_steps=1200, release_to_jump=release_to_jump)
+        env.reset(seed)
+        done = False
+        while not done:
+            _, _, done, info = env.step(accion(env))
+        metas.append(info["meta"])
+    return float(np.mean(metas))
+
+
 def test_nivel_reproducible_y_distinto_por_semilla() -> None:
     a = generate_level(7, SMALL)
     b = generate_level(7, SMALL)
@@ -184,18 +202,7 @@ def test_la_tarea_tiene_margen_sobre_la_politica_degenerada() -> None:
     """
     from envs.platformer import scripted_action
 
-    cfg = LevelConfig(width=160, height=14)
-
-    def corre(accion) -> float:
-        metas = []
-        for seed in range(3_000_000, 3_000_020):
-            env = PlatformerEnv(cfg, max_steps=1200)
-            env.reset(seed)
-            done = False
-            while not done:
-                _, _, done, info = env.step(accion(env))
-            metas.append(info["meta"])
-        return float(np.mean(metas))
+    corre = _fraccion_de_metas
 
     degenerada = corre(lambda env: 3)
     heuristica = corre(scripted_action)
@@ -255,20 +262,24 @@ def test_soltar_para_saltar_deja_sin_valor_a_la_constante_y_no_a_la_heuristica()
     pasa de 17 % de metas a 0 % y la heuristica se queda en 53 %."""
     from envs.platformer import scripted_action
 
-    cfg = LevelConfig(width=160, height=14)
-
     def corre(accion) -> float:
-        metas = []
-        for seed in range(3_000_000, 3_000_020):
-            env = PlatformerEnv(cfg, max_steps=1200, release_to_jump=True)
-            env.reset(seed)
-            done = False
-            while not done:
-                _, _, done, info = env.step(accion(env))
-            metas.append(info["meta"])
-        return float(np.mean(metas))
+        return _fraccion_de_metas(accion, release_to_jump=True)
 
     constante = max(corre(lambda env: 3), corre(lambda env: 4))
     heuristica = corre(scripted_action)
     assert constante <= 0.05, f"saltar sin mirar aun termina el {constante:.0%}"
     assert heuristica >= 0.3, f"la heuristica solo termina el {heuristica:.0%}"
+
+
+def test_from_config_lleva_las_mismas_opciones_al_entorno_y_al_vector() -> None:
+    """Clonado, entrenamiento y evaluacion construyen el entorno desde el YAML con
+    `from_config`; si una opcion no llegara a uno de los dos, jugarian a juegos distintos."""
+    cfg = {"level": {"width": 60, "height": 12}, "max_episode_steps": 77,
+           "release_to_jump": True, "level_seeds": {"train": [10, 20]}}
+    env = PlatformerEnv.from_config(cfg)
+    vector = VectorPlatformer.from_config(cfg, 2, "train")
+    for e in (env, *vector.envs):
+        assert e.level_cfg == SMALL and e.max_steps == 77 and e.release_to_jump
+    assert (vector.low, vector.high) == (10, 20)
+    assert vector.n_features == env.n_features
+    assert PlatformerEnv.from_config({}).release_to_jump is False

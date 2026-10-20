@@ -33,10 +33,7 @@ from torch import Tensor, nn
 from data.spectral import resolve_device
 from envs.platformer import (
     N_ACTIONS,
-    LevelConfig,
     ObservationConfig,
-    RewardConfig,
-    SeedRanges,
     VectorPlatformer,
 )
 from models.masked_policy import build_policy
@@ -73,16 +70,7 @@ def build_environments(cfg: dict[str, Any], split: str, n_envs: int):
             obs_cfg=ObservationConfig(**cfg.get("observation", {})),
             cfg=NesConfig(**cfg.get("nes", {})),
         )
-    return VectorPlatformer(
-        n_envs=n_envs,
-        split=split,
-        seeds=SeedRanges.from_config(cfg),
-        level_cfg=LevelConfig(**cfg.get("level", {})),
-        obs_cfg=ObservationConfig(**cfg.get("observation", {})),
-        reward_cfg=RewardConfig(**cfg.get("reward", {})),
-        max_steps=int(cfg.get("max_episode_steps", 1200)),
-        release_to_jump=bool(cfg.get("release_to_jump", False)),
-    )
+    return VectorPlatformer.from_config(cfg, n_envs, split)
 
 
 def cierra(envs: Any) -> None:

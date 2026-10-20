@@ -33,10 +33,8 @@ from torch import Tensor, nn
 
 from envs.platformer import (
     N_ACTIONS,
-    LevelConfig,
     ObservationConfig,
     PlatformerEnv,
-    RewardConfig,
     SeedRanges,
     scripted_action,
 )
@@ -52,13 +50,7 @@ def crea_entorno(cfg: dict[str, Any], particion: str = "train") -> Any:
 
         return NesMarioEnv(particion, ObservationConfig(**cfg.get("observation", {})),
                            NesConfig(**cfg.get("nes", {})))
-    return PlatformerEnv(
-        LevelConfig(**cfg.get("level", {})),
-        ObservationConfig(**cfg.get("observation", {})),
-        RewardConfig(**cfg.get("reward", {})),
-        int(cfg.get("max_episode_steps", 1200)),
-        bool(cfg.get("release_to_jump", False)),
-    )
+    return PlatformerEnv.from_config(cfg)
 
 
 def maestra(cfg: dict[str, Any]) -> Callable[[Any], int]:
