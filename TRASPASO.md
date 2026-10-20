@@ -10,6 +10,13 @@ Google Cloud.** Clonado de la heuristica + PPO desde el clonado, seis modelos x 
 `af21c4f` y el plan de analisis ya escrito en RESULTADOS.md. Lanzador
 `scripts/gcp/run_6d.sh`; la VM se apaga sola. El PC sigue sin nada que ejecutar.
 
+**20-10-2026: la primera tanda se colgo y se relanzo a las 16:26 UTC.** El clonado
+termino a las 17:47 UTC del 19-10, pero el `wait` sin argumentos tambien esperaba al
+bucle de subida y, en bash 5.2, a la sustitucion de proceso del `tee` del log. Ninguno de
+los dos acaba nunca, asi que la VM se quedo 22 h encendida sin hacer nada. Ahora se
+espera solo a los PID del clonado. Se relanzo desde cero con el mismo commit de codigo
+(`af21c4f`); lo de la tanda colgada queda en `~/*_colgada` dentro de la VM.
+
 ```bash
 B=gs://mosca-runs-317660842762/6d
 gcloud storage cat $B/logs/vm.log | tail                     # por donde va

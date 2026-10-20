@@ -44,12 +44,16 @@ $PY -m pytest -q tests/test_platformer.py || exit 1
 ( while sleep 600; do sube >/dev/null 2>&1; done ) &
 
 # 1. Clonado: un proceso por semilla, los seis modelos en cada uno.
+# `wait` con los PID: sin ellos espera tambien al bucle de subida, que no acaba nunca
+# (asi se quedo colgada la primera tanda el 19-10-2026, 22 h con la VM parada).
 echo "== clonado $(date -Is) =="
+CLONADOS=()
 for s in 0 1 2; do
     $PY clonado_rl.py --config $CFG --modelos "${MODELOS// /,}" --ruido 0.1 --guarda-pesos \
         --semilla $s --salida $D/clonado_s$s.json > ~/logs6d/clonado_s$s.log 2>&1 &
+    CLONADOS+=($!)
 done
-wait
+wait "${CLONADOS[@]}"
 ls $D/clonado/*.pt | wc -l
 sube >/dev/null 2>&1
 
