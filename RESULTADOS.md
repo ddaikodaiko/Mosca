@@ -1771,3 +1771,32 @@ el orden de los lotes y todo el PPO.
   delante), ni nada a N = 4.000.
 - La regla se aplica a mano sobre `contrastes_por_nivel` y `contrastes_por_semilla` de
   `evaluate_rl.py`. Si hay que cambiar algo, va como enmienda fechada aparte.
+
+### Enmienda al plan de la 6d (20-10-2026, 16:40 UTC, antes de tener ningun dato de evaluacion)
+
+Escrita cuando el afinado acababa de empezar en la VM y no habia ningun JSON de
+evaluacion en el bucket. Corrige el plan en lo que no se podia aplicar tal como estaba
+escrito; no cambia ninguna comparacion ni ningun umbral.
+
+1. **Donde se lee la p por nivel.** El plan decia `contrastes_por_nivel`, pero
+   `evaluate_rl.py` solo lo rellena con 20 niveles o menos, y aqui hay 200: saldra `{}`.
+   En el entorno propio cada partida es un nivel distinto, y `contrastes` ya es la prueba
+   por nivel: permutacion pareada de signos sobre los 200 niveles, con cada valor
+   promediado sobre las 3 semillas (y sobre las repeticiones en la muestreada), 10.000
+   permutaciones, semilla 0. El criterio (a) se lee de `contrastes[...]["progreso"]["p"]`,
+   con Holm sobre las dos comparaciones principales. El (b), de `contrastes_por_semilla`,
+   como estaba.
+2. **Comparaciones contra las referencias que el codigo no hace.** `evaluate_rl.py` solo
+   enfrenta a mosca y MLP con `azar` y `salto_corriendo`. Para aleatorio, recableado,
+   `sin_nucleo` y denso se calculan despues, con la misma funcion
+   (`evaluate.prueba_de_permutacion`) y los mismos parametros, a partir de las series que
+   guarda el JSON (`series_por_semilla`, promediada por nivel sobre las semillas, contra
+   `series_referencias`). Igual en los modelos solo clonados.
+3. **Ganancia por PPO.** El plan no fijaba la prueba: es la misma permutacion pareada por
+   nivel, afinado contra clonado del mismo modelo, con las series de
+   `eval_afinado_codiciosa.json` y `eval_clonado_codiciosa.json`. Umbral 0,05 sin Holm,
+   como el resto de secundarios.
+4. **Comprobacion previa.** El lanzador no comprueba el codigo de salida de cada trabajo,
+   y `evaluate_rl.py` se salta en silencio los checkpoints que falten. Antes de leer nada
+   se comprueba que hay 18 checkpoints afinados y que cada modelo tiene 3 semillas en
+   `series_por_semilla` de los tres JSON. Si falta alguna, el analisis se para y se avisa.
