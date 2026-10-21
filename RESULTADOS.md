@@ -1503,7 +1503,7 @@ de la fase 6. La corrida (mosca y MLP, 1.500 iteraciones) va a la GPU: TRASPASO.
 
 ### Corrida s0 (13-10-2026)
 
-VM `mosca-6c` (c2d-highcpu-8, solo CPU), codigo 2772f6d, de 16:21 a 20:38 UTC, salida 0,
+VM `mosca-6c` (c2d-highcpu-8, solo CPU), codigo 44b5b40, de 16:21 a 20:38 UTC, salida 0,
 sin reanudaciones. Mosca 2,22 h, MLP 2,02 h. Parametros: mosca 27.253 (500 neuronas),
 MLP 27.343 (71 neuronas). Artefactos en `gs://mosca-runs-317660842762/6c/` y
 `artifacts/mario_nes_sola/` (no viajan con el repo).
@@ -1579,7 +1579,7 @@ siete niveles equilibrados, contra el 0,265 del test desequilibrado. Se corto a 
 ### Replicas en marcha (desde el 14-10-2026, 06:56 UTC)
 
 Los seis modelos del diseno con las semillas 0, 1 y 2, con la receta y el codigo exactos
-de la s0: 2772f6d, comprobado por sha256 de los 64 `.py`/`.yaml` y de los tres cableados
+de la s0: 44b5b40, comprobado por sha256 de los 64 `.py`/`.yaml` y de los tres cableados
 contra el repo. Faltan 16 entrenamientos. Van en dos VMs, porque la cuenta tiene un limite
 de 12 vCPU: `mosca-6c` (8 vCPU, ~2,7 h por modelo) y `mosca-6c-b` (4 vCPU, ~4 h). Las dos
 comparten una cola en `gs://mosca-runs-317660842762/6c-replicas/`, donde cada trabajo se
@@ -1954,7 +1954,7 @@ registrado de la 6d**, que sigue siendo "pierde".
 
 La tanda de `mosca-6c` termino el 21-10 a las 11:55 UTC con codigo 0: 9 clonados, 9
 afinados y las tres evaluaciones. El codigo (`codigo_a7db8eb.tar.gz` en el bucket, nombre
-anterior a la reescritura) es identico a dbe4e24 en todo el Python y los YAML; solo
+anterior a la reescritura) es identico a c7d16de en todo el Python y los YAML; solo
 cambian documentos y comentarios. `analiza_6e.py` paso la
 comprobacion previa (los mismos 200 niveles y las mismas referencias en la 6e y en la
 6d). Artefactos en `artifacts/mario_proto_6e_row_gcp/` (con `logs_gcp/` y

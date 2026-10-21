@@ -5,8 +5,13 @@ código detecta el dispositivo solo (`device: auto` en todos los YAML); no hay n
 tocar en el código, solo ejecutar en orden.
 
 **Hashes de commit (21-10-2026):** ese dia se reescribieron los mensajes de dos commits
-antiguos; el codigo no cambio, pero 25 commits cambiaron de hash. Los documentos citan
-ya los nuevos. Los `.tar.gz` del bucket conservan el nombre de antes.
+antiguos; el codigo no cambio, pero 25 commits cambiaron de hash. Ese mismo dia, antes de
+hacer publico el repo, se quitaron de la historia las notas internas y se unifico la
+autoria de todos los commits; tampoco cambio ningun fichero de codigo, pero cambiaron
+todos los hashes. Los documentos citan ya los definitivos. Los `.tar.gz` del bucket
+conservan el nombre de antes, y el repo del PC sigue en la historia vieja: se pone al dia
+con `git fetch` y `git reset --hard origin/main` (los artefactos estan ignorados), nunca
+con `git pull`.
 
 **Al 21-10-2026, 19:32 (hora del PC): la tanda de fluidos ha terminado.** Los 18
 entrenamientos y `evaluate.py`, codigo 0. Resultado en RESULTADOS.md (seccion del
@@ -24,7 +29,7 @@ en `artifacts/mario_proto_6e_row_gcp/`. **En el PC se lanzo la tanda de fluidos*
 (`artifacts/train_64/tanda_21oct.cmd`, en el PC) corre `scripts/tanda.sh` y despues
 `evaluate.py`; log en `artifacts/train_64/tanda_21oct.log`. Los logs y el
 `eval_report.json` de antes quedan al lado como `*.antes_21oct.*`. El codigo de fluidos
-del PC (2772f6d) es identico al de HEAD. Se lanzo por SSH, no como tarea programada: si
+del PC (44b5b40) es identico al de HEAD. Se lanzo por SSH, no como tarea programada: si
 se corta la conexion, se relanza el mismo `.cmd` y sigue donde iba.
 
 **Google Cloud vaciado el 21-10-2026:** borradas las VMs `mosca-6c` y `mosca-6c-b` (con
@@ -40,7 +45,7 @@ siguen cobrando el disco).
 **Al 19-10-2026: la 6c ha terminado (veredicto en RESULTADOS.md) y corre la fase 6d en
 Google Cloud.** Clonado de la heuristica + PPO desde el clonado, seis modelos x semillas
 0-2, entorno propio con `release_to_jump`, en la VM `mosca-6c` (8 vCPU), con el codigo de
-`ea8865f` y el plan de analisis ya escrito en RESULTADOS.md. Lanzador
+`7516e18` y el plan de analisis ya escrito en RESULTADOS.md. Lanzador
 `scripts/gcp/run_6d.sh`; la VM se apaga sola. El PC sigue sin nada que ejecutar.
 
 **20-10-2026: la primera tanda se colgo y se relanzo a las 16:26 UTC.** El clonado
@@ -48,7 +53,7 @@ termino a las 17:47 UTC del 19-10, pero el `wait` sin argumentos tambien esperab
 bucle de subida y, en bash 5.2, a la sustitucion de proceso del `tee` del log. Ninguno de
 los dos acaba nunca, asi que la VM se quedo 22 h encendida sin hacer nada. Ahora se
 espera solo a los PID del clonado. Se relanzo desde cero con el mismo commit de codigo
-(`ea8865f`); lo de la tanda colgada queda en `~/*_colgada` dentro de la VM.
+(`7516e18`); lo de la tanda colgada queda en `~/*_colgada` dentro de la VM.
 
 ```bash
 B=gs://mosca-runs-317660842762/6d
@@ -63,7 +68,7 @@ cobra), salvo que se vayan a reutilizar.
 **replicas de la fase 6c**, y corren en Google Cloud. La s0 (mosca + MLP) termino el
 13-10-2026 (resultado en RESULTADOS.md, seccion del 14-10-2026). Desde el 14-10-2026 a las
 06:56 UTC entrenan los seis modelos del diseno con las semillas 0, 1 y 2 (faltaban 16), con
-el codigo exacto de la s0 (2772f6d), en dos VMs de `europe-west1-b` que comparten una cola
+el codigo exacto de la s0 (44b5b40), en dos VMs de `europe-west1-b` que comparten una cola
 en el bucket:
 
 - `mosca-6c` (c2d-highcpu-8, ~2,7 h por modelo) y `mosca-6c-b` (c2d-highcpu-4, ~4 h),

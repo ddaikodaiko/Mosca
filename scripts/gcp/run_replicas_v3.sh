@@ -7,7 +7,7 @@
 #     (espera a que acabe y lo da por bueno si escribio su rl_report).
 #   - cuando no queda nada que reclamar y estan los 16 trabajos hechos, esta VM es la
 #     ultima: reclama "evaluacion" y corre la evaluacion final antes de apagarse.
-# Codigo de entrenamiento = 2772f6d (sha256 comprobado el 14-10-2026). evaluate_rl.py es
+# Codigo de entrenamiento = 44b5b40 (sha256 comprobado el 14-10-2026). evaluate_rl.py es
 # la version con --split/--por-nivel/--modelos/--semillas/--marginal/--procesos.
 cd ~/Mosca
 B=gs://mosca-runs-317660842762/6c-replicas

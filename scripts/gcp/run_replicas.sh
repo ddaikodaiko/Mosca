@@ -4,7 +4,7 @@
 # creando claims/<modelo>_s<semilla> con --if-generation-match=0, que falla si otra VM
 # ya lo creo (reclamo atomico). El orden de la cola es la prioridad: primero los
 # controles de cableado en s0, luego las semillas 1 y 2, el denso al final.
-# Codigo = 2772f6d (git archive), comprobado por sha256 contra el repo el 14-10-2026.
+# Codigo = 44b5b40 (git archive), comprobado por sha256 contra el repo el 14-10-2026.
 # Al vaciarse la cola sube todo y apaga la VM, tambien si algo falla.
 cd ~/Mosca
 B=gs://mosca-runs-317660842762/6c-replicas
