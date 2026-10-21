@@ -1867,3 +1867,85 @@ Principal: afinados (clonado + PPO), politica codiciosa, 200 niveles de test.
   20-10-2026). El orden de las medias (mosca 0,462 < recableado 0,527 < aleatorio 0,568)
   encaja con las dos, pero recableado contra aleatorio no estaba en el plan y no se
   contrasta aqui.
+
+## 21-10-2026: el reescalado espectral apaga la recurrencia de la mosca (diagnostico, exploratorio)
+
+`diagnostico_cableado.py`, sin entrenar nada, sobre las mascaras de la 6d (N = 500) y las
+del subgrafo de 4.000, con la inicializacion exacta del nucleo (`max_eig`, radio 0,95) y
+los puertos exactos de `select_ports`. Datos en
+`artifacts/mario_proto_6c_soltar_gcp/diagnostico_cableado.json` y
+`artifacts/conectoma_4000/diagnostico_cableado.json`.
+
+| | mosca | recableado | aleatorio |
+|---|---|---|---|
+| radio espectral bruto (conteos con signo, media 1), N = 500 | 74,5 | 16,4 | 10,4 |
+| grueso del espectro tras reescalar (mediana de \|autovalor\|), N = 500 | **0,013** | 0,102 | 0,356 |
+| autovalores con \|autovalor\| > 0,1, de 500 | 20 | 250 | 460 |
+| peso medio por arista, N = 500 | 0,013 | 0,058 | 0,091 |
+| grueso del espectro, N = 4.000 | **0,004** | 0,075 | 0,284 |
+| reciprocidad, N = 500 | 0,346 | 0,092 | 0,035 |
+| conteo medio en aristas reciprocas / en el resto, N = 500 | 5,97 / 3,32 | 5,47 / 4,11 | 3,28 / 4,27 |
+| cuota de \|W\| que sale del 5 % de mas grado, N = 500 | 0,23 | 0,19 | 0,07 |
+| progreso en la 6d (afinados, codiciosa) | 0,462 | 0,527 | 0,568 |
+
+- **Lo que pasa:** la mosca tiene pares reciprocos con muchas sinapsis entre sus centros, y
+  eso le da un autovalor dominante de 74,5. Al llevarlo a 0,95, todo lo demas se divide
+  por 78: una senal generica se atenua unas 75 veces por salto. En el aleatorio, por 11.
+  Es el mismo fenomeno que la fase 4 midio solo en la mosca; lo nuevo es la comparacion:
+  **igualar el radio espectral no iguala la ganancia efectiva**, y castiga a la mosca 27
+  veces mas que al aleatorio a N = 500 y 73 veces mas a N = 4.000. Afecta a todas las
+  fases, porque todas usan `max_eig`.
+- El orden del grueso del espectro (mosca < recableado < aleatorio) es el orden del
+  progreso en la 6d, a N = 500 y a N = 4.000. Son tres puntos: encaja, no prueba.
+- **El entrenamiento no lo corrige.** Tras clonado + PPO, el grueso de la mosca sigue en
+  0,013-0,014 y el del aleatorio en 0,37; los pesos de la mosca se mueven un 20 % (los del
+  aleatorio un 7 %), sin salir del regimen.
+- **En la 6d la recurrencia si sirve cuando esta viva** (exploratorio, la misma prueba por
+  nivel sobre los datos de la 6d): aleatorio contra `sin_nucleo` +0,091 (p < 1e-4),
+  recableado contra `sin_nucleo` +0,049 (p < 1e-4); en la muestreada +0,060 y +0,074. El
+  denso, +0,019 (p 0,22). La lectura de la 6c ("la tarea apenas usa la recurrencia") no
+  vale aqui: el que no la usa es la mosca, y empata con no tener nucleo.
+- **H3, atajos entre puertos:** en los tres cableados todas las motoras exclusivas estan a
+  un salto de alguna sensorial. Aristas directas sensorial -> motora: 961 en la mosca, 862
+  en el recableado y 236 en el aleatorio. La mosca tiene cuatro veces mas atajos y pierde,
+  asi que los atajos no son lo que la frena.
+- **H2:** la composicion de signos de los pares reciprocos es parecida (EE 0,20 / 0,25 /
+  0,25; EI 0,56 / 0,48 / 0,56). No apunta a nada.
+- **H4:** entropia de los valores singulares 0,78 / 0,83 / 0,88, el mismo orden, pero es
+  consecuencia del mismo autovalor dominante, no una causa aparte.
+- **Discrepancia con la fase 4:** alli se anoto un grueso de 0,188 (N = 500) y 0,071
+  (N = 4.000) para la mosca; con esta medida sale 0,013 y 0,004. No consta como se midio
+  entonces. Las cifras de esta tabla salen de `MaskedRecurrentCore.dense_matrix()` y se
+  reproducen con el script. La normalizacion por filas se probo en la fase 4, solo en la
+  mosca y en el prototipo de fluidos, donde ningun modelo aprendia ("no cambia el
+  resultado final", 0,0998 contra 0,0999): aquel ensayo no podia ver este efecto.
+
+## 21-10-2026: fase 6e, plan registrado antes de los datos (EXPLORATORIA)
+
+Fuera del diseno: la normalizacion del diseno es `max_eig`. **No sustituye al veredicto
+registrado de la 6d**, que sigue siendo "pierde".
+
+- **Que:** la 6d repetida entera (`configs/mario_proto_6e_row.yaml`, `scripts/gcp/run_6e.sh`:
+  clonado de la heuristica con ruido 0,1, 300 iteraciones de PPO, semillas 0-2, los mismos
+  200 niveles de test, codiciosa y muestreada con 3 repeticiones) cambiando solo
+  `core.normalisation` a `row`: cada neurona recibe la misma corriente total antes de
+  llevar el autovalor mayor a 0,95. Solo mosca, aleatorio y recableado: `sin_nucleo` y el
+  MLP no tienen aristas, y en el denso todas las neuronas reciben lo mismo, asi que `row`
+  le da los mismos pesos. Esos tres se toman de la 6d.
+- Con `row` el grueso del espectro queda en 0,146 / 0,498 / 0,595 (mosca / recableado /
+  aleatorio): la distancia baja de 27 veces a 4, pero no desaparece.
+- **Analisis:** `analiza_6e.py`, con la regla en su cabecera y tests en
+  `tests/test_analiza_6e.py`. Principal, con Holm sobre los dos: la interaccion por nivel
+  d = (mosca_row - X_row) - (mosca_max - X_max), X = aleatorio y recableado, permutacion
+  pareada sobre los 200 niveles, con las tres semillas del mismo lado como criterio de
+  consistencia. Secundarios con la regla de la 6d.
+- **Prediccion de H1 (el deficit viene del reescalado):** la interaccion "reduce el
+  deficit" contra los dos controles, la mosca con `row` le gana a la mosca con `max_eig`, y
+  la mosca con `row` le gana a `sin_nucleo`. H1 no predice que la mosca alcance al
+  aleatorio, porque el grueso sigue siendo cuatro veces menor.
+- **Lectura:** si reduce el deficit, al menos parte del "pierde" de la 6d (y del empate con
+  `sin_nucleo` de todas las fases) es un efecto del diseno de la inicializacion, no del
+  cableado, y la comparacion justa necesita igualar la ganancia efectiva. Si sale "sin
+  efecto" contra los dos, el reescalado queda descartado como causa y quedan H5 (donde caen
+  los conteos) y H6 (fragmento de 500 neuronas).
+- **Coste:** 9 entrenamientos y 3 evaluaciones en `mosca-6c`, alrededor de una hora.
