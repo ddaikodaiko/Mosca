@@ -1,6 +1,6 @@
 # Mosca — una IA cableada como el cerebro de una mosca, prediciendo un fluido
 
-[English](README.md)
+[Read in English](README.md) · **Castellano**
 
 <p align="center">
   <img src="docs/media/fly_fluid.gif" alt="Neuronas de la red cableada como la mosca encendiéndose junto al campo de vorticidad real y el predicho" width="100%">
@@ -279,6 +279,7 @@ está en [`TRASPASO.md`](TRASPASO.md) y en `scripts/gcp/`.
   al., *Nature* 2024. Conectividad y signos tal como los empaqueta Shiu et al., *Nature* 2024
   ([philshiu/Drosophila_brain_model](https://github.com/philshiu/Drosophila_brain_model)).
 - Posiciones de las neuronas: [flyconnectome/flywire_annotations](https://github.com/flyconnectome/flywire_annotations).
-- Los datos descargados no se redistribuyen en este repositorio.
+- Los datos descargados no se redistribuyen en este repositorio. Los datos de FlyWire
+  tienen licencia CC BY-NC 4.0 (uso no comercial).
 
-Licencia MIT.
+El código, con licencia MIT.

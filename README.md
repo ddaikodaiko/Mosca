@@ -1,6 +1,6 @@
 # Mosca — an AI wired like a fruit fly's brain, predicting a fluid
 
-[Español](README.es.md)
+**English** · [Leer en castellano](README.es.md)
 
 <p align="center">
   <img src="docs/media/fly_fluid.gif" alt="Neurons of the fly-wired network lighting up next to the real and predicted vorticity field" width="100%">
@@ -279,6 +279,7 @@ runs do not fit on a laptop: the recipe for the GPU machine and for Google Cloud
   al., *Nature* 2024. Connectivity and signs as packaged by Shiu et al., *Nature* 2024
   ([philshiu/Drosophila_brain_model](https://github.com/philshiu/Drosophila_brain_model)).
 - Neuron positions: [flyconnectome/flywire_annotations](https://github.com/flyconnectome/flywire_annotations).
-- Downloaded data is not redistributed in this repository.
+- Downloaded data is not redistributed in this repository. FlyWire data are licensed
+  CC BY-NC 4.0 (non-commercial).
 
-MIT licence.
+Code under the MIT licence.
