@@ -4,6 +4,10 @@ Lo que no cabe en el portátil y hay que ejecutar en la máquina con la RTX 3060
 código detecta el dispositivo solo (`device: auto` en todos los YAML); no hay nada que
 tocar en el código, solo ejecutar en orden.
 
+**Hashes de commit (21-10-2026):** ese dia se reescribieron los mensajes de dos commits
+antiguos; el codigo no cambio, pero 25 commits cambiaron de hash. Los documentos citan
+ya los nuevos. Los `.tar.gz` del bucket conservan el nombre de antes.
+
 **Al 21-10-2026: la 6d ha terminado** (20-10, 17:20 UTC, codigo 0; veredicto en
 RESULTADOS.md, seccion del 21-10-2026). Todo lo del bucket esta bajado en
 `artifacts/mario_proto_6c_soltar_gcp/`. No hay nada corriendo ni en Google Cloud ni en el
