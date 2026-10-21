@@ -9,13 +9,36 @@
 We take the wiring diagram of the *Drosophila* brain (FlyWire connectome, ~139,000 neurons),
 cut out a piece, and build an artificial recurrent network that can **only use the
 connections that exist in the fly**, keeping which neurons excite and which inhibit (Dale's
-law). Then we train it to predict a 2D Navier–Stokes flow one step ahead.
+law). Then we make it predict a 2D Navier–Stokes flow and play a platform game.
 
 **The question:** does the real wiring help, compared with random wiring that has the same
 statistics?
 
 > **Not a fly.** Nothing here is a fly or a model of how a fly thinks. The connectome is used
 > as the blueprint of an artificial network.
+
+## In short (21 Oct 2026)
+
+- **Across five tasks, the fly wiring never beats random wiring.** In the only task with
+  enough resolution to tell wirings apart (platform levels the model has never seen), it
+  **loses** to random wiring, under an analysis written as code before the data existed.
+- **We found a mechanism that would explain it, and it is not biology.** To start every
+  wiring in the same dynamical regime, the design scales the weights until the largest
+  eigenvalue is 0.95. The fly has a core of neuron pairs connected both ways with many
+  synapses, which inflates its largest eigenvalue; once that is scaled down, every other
+  connection is **27 times weaker than in the random graph** (73 times with 4,000 neurons).
+  Its recurrence is nearly switched off, which fits with it tying a control that has no
+  connections at all. Equal spectral radius is not equal treatment.
+- <!-- 6E --> *(The check — retraining with a normalisation that does not penalise the fly —
+  is running.)* <!-- /6E -->
+- **Still missing:** the original full-scale fluid experiment (4,000 neurons, 64×64 grid)
+  is at 8 of 18 training runs, paused. With one seed, the fly does beat the no-connection
+  control there.
+
+Every number, including the ones that went wrong, is in [`RESULTADOS.md`](RESULTADOS.md)
+(Spanish). The comparison with the published literature is in
+[`docs/literatura/informe.md`](docs/literatura/informe.md) (Spanish; the underlying notes
+are mostly in English).
 
 ## Pre-registered prediction
 
@@ -30,10 +53,11 @@ Written down before seeing any result ([design, §3](diseno_mosca_navier_stokes.
 We expect **H0 or H1**, and a Fourier Neural Operator (FNO) to beat every wired network.
 A null result is a valid result.
 
-## The seven models
+## The models
 
 Only the connectivity mask changes between the wired models; encoder, decoder, training
-recipe and parameter budget are shared.
+recipe and parameter budget are shared. Every weight inside the mask is trained; each
+neuron's sign comes from the data and never changes.
 
 | Model | Recurrent core |
 |---|---|
@@ -42,69 +66,85 @@ recipe and parameter budget are shared.
 | `recableado` | Fly graph with edges shuffled, **degrees preserved exactly** |
 | `denso` | All-to-all, fewer neurons, same number of trainable weights |
 | `sin_nucleo` | Same neurons, signs and ports as the fly, **zero connections** (control) |
-| `fno` | Fourier Neural Operator (upper reference) |
-| `persistencia` | Predicts "nothing changes" (lower reference) |
+| `mlp` | Unmasked network with the same parameter count (Mario only) |
+| `fno` | Fourier Neural Operator (upper reference, fluids only) |
+| `persistencia` | Predicts "nothing changes" (lower reference, fluids only) |
+
+`sin_nucleo` is the control that says whether there is anything to discuss: if the fly does
+not beat it, what it does comes not from its wiring but from the encoder and decoder every
+model shares. We have not found any other study that uses it.
+
+## Results, task by task
+
+| Task | Learns by | Fly vs random / rewired | Core vs `sin_nucleo` |
+|---|---|---|---|
+| Navier–Stokes, rehearsal (500 neurons, 32×32) | supervised | tie / tie | 0.0004 less error: nothing |
+| Navier–Stokes, full scale (4,000, 64×64) | supervised | **pending**: 8 of 18 runs | seed 0: −4 % rollout error |
+| Own platformer | PPO from scratch | everyone stuck in "jump right"; closed without resolution | — |
+| Super Mario Bros (NES), level 1-1 | imitation with memory | tie (fly 0.98, random 0.98, rewired 1.00) | memory decides: 0.98 vs 0.32 |
+| NES, unseen levels | PPO | tie / unresolved | tie |
+| Procedural platformer, 200 unseen levels | imitation + PPO | **loses** (0.462 vs 0.568) / unresolved | tie |
+
+In the last one, all six models reach the goal on levels they have never seen and beat
+random buttons and every constant policy, so the task does discriminate. And in that task
+random and rewired wiring **do** beat `sin_nucleo` (+0.091 and +0.049, p < 0.0001):
+recurrence helps when it is alive. The one not using it is the fly.
+
+## Why the fly loses: equal spectral radius is not equal treatment
+
+| | fly | rewired | random |
+|---|---|---|---|
+| largest eigenvalue before scaling (500 neurons) | 74.5 | 16.4 | 10.4 |
+| bulk of the spectrum after scaling to 0.95 (median \|eigenvalue\|) | **0.013** | 0.102 | 0.356 |
+| same with 4,000 neurons | **0.004** | 0.075 | 0.284 |
+| fraction of connections with a reciprocal partner | 0.35 | 0.09 | 0.04 |
+| progress on unseen levels | 0.462 | 0.527 | 0.568 |
+
+The order of the spectral bulk is the order of the results, and training does not undo it:
+after PPO the fly is still at 0.013. Measured with
+[`diagnostico_cableado.py`](diagnostico_cableado.py), without training anything.
+
+This does not say the connectome is bad. It says that the usual way of putting wirings on
+an equal footing (matching the spectral radius, standard practice in reservoir computing)
+penalises graphs with a strong reciprocal core, and the fly's has one.
+
+## The tasks
+
+### Fluids
 
 Pipeline: vorticity field → FFT → lowest Fourier modes → *sensory* neurons (highest
 out-degree) → masked recurrent core (4 internal steps) → *motor* neurons (highest in-degree)
 → modes → inverse FFT → **increment** added to the field.
 
-`sin_nucleo` is the control that says whether there is anything to discuss: if the fly does
-not beat it, what it predicts does not come from its wiring but from the encoder and decoder
-every model shares.
-
-## The second task: Mario
+### Mario
 
 The same wired core playing instead of predicting ([design, §13](diseno_mosca_navier_stokes.md)).
-Two environments with **the same 302-number symbolic observation**, so the policy is
-identical in both: a hand-written platformer with procedural levels, and the real NES Super
-Mario Bros through an emulator, reading the tile map out of the RAM. The anatomical viewer
+Two environments with **the same symbolic observation**, so the policy is identical in
+both: a hand-written platformer with procedural levels, and the real NES Super Mario Bros
+through an emulator, reading the tile map out of the RAM. The anatomical viewer
 (`visor_nes.py`) puts the game on one side and, on the other, the 139,000 connectome neurons
 with the subgraph lighting up on top, at their real FlyWire coordinates.
-
-<p align="center">
-  <img src="docs/media/mario_referencias.gif" alt="The four reference policies playing the platformer" width="100%">
-</p>
-
-And the fly-wired network playing NES Super Mario Bros, with its brain next to it (300 PPO
-iterations, sampled policy). Honestly: this demo trains and measures on the same level, it
-beats the constant-jump policy (p = 0.008) and is **indistinguishable from mashing buttons
-at random** (p = 0.25).
 
 <p align="center">
   <img src="docs/media/mosca_juega_nes.gif" alt="The fly-wired network playing Super Mario Bros, with its neural activity beside it" width="100%">
 </p>
 
-Every number is read against four reference policies (random, always right, constant jump,
-hand-written heuristic) or it is not read at all: **PPO falls into the degenerate policy on
-its own** — always jumping right already covers 38 % of the level. In the laptop rehearsal
-the six models tie and none beats it.
+This demo (300 PPO iterations, sampled policy) trains and measures on the same level, beats
+the constant-jump policy and is **indistinguishable from mashing buttons at random**
+(p = 0.25).
 
-**The Mario experiment is closed with no resolution.** The core *can* represent a good
-policy: cloned from the heuristic it reaches 0.82-0.84 of the level, and PPO keeps it when
-it starts from there. But from scratch PPO never finds it, **and neither does an
-unconstrained MLP**. The bottleneck is exploration, not wiring, so a tie between six models
-stuck in the same degenerate policy would say nothing about the connectome. The 36 GPU runs
-of this task are not launched.
+Every number is read against the reference policies (random, always right, constant jump,
+running jump, and a hand-written heuristic) or not at all. PPO from scratch falls into the
+degenerate "always jump right" policy on its own, and so does an unmasked MLP. That is why
+the version that separates wirings starts by imitating the heuristic and then fine-tunes
+with PPO, and uses the NES rule that the jump button must be released before jumping again,
+which sinks every constant policy.
 
-By imitation, the fly-wired network does clear NES level 1-1 (0.947 of the level, the flag
-in 4 of 12 games): [video](docs/media/mosca_clonada_1-1.mp4). That is a demo, not science:
-same level, copied from a hand-written teacher. And with controls, the wiring gets no
-credit: random, rewired and dense cores clone it just as well (0.91-1.00 over three
-seeds), and the two models with no recurrence mostly stall at the first pipe (0.32 on
-average). What clears the level is memory, not the fly.
-
-## Status
-
-**Work in progress. No final result yet.** The real experiment (N = 4,000 neurons, 64×64
-grid, 3 seeds per model) is running on a GPU, 8 of 18 runs done. The first seed already
-changes the rehearsal's reading: at full scale the fly core **does** pull away from doing
-nothing, 11 % better than persistence and 4 % better than the zero-connection control over
-a 50-step rollout, where at rehearsal scale it lost. With a single seed that is promising,
-not confirmed; fly against random and rewired needs all 18. See
-[`RESULTADOS.md`](RESULTADOS.md) for every number, including the ones that went wrong.
-
-<!-- RESULTS -->
+By imitation, the fly-wired network clears NES level 1-1
+([video](docs/media/mosca_clonada_1-1.mp4)). That is a demo, not science: same level,
+copied from a teacher. With controls, the credit goes to memory, not wiring: random and
+rewired cores clone it just as well, and the models without recurrence stall at the first
+pipe.
 
 ## What we learned on the way
 
@@ -113,14 +153,35 @@ not confirmed; fly against random and rewired needs all 18. See
   signal to learn is ~10 % of the field. Caught with a test against the simulator; every
   earlier result with augmentation was discarded.
 - **Unfair ports**: letting input and output neurons overlap freely gave the fly 159
-  input→output shortcuts and the random graph 18. Overlap is now fixed at 92 for every model.
-- **The zero-connection control**: at rehearsal scale (N=500, 32×32, 20,000 steps) the fly
-  beats `sin_nucleo` — the same neurons with no connections at all — by 0.0004 error. That
-  is the number that says whether there is anything to discuss, and so far it says no: at
-  this scale the model's prediction does not come from its recurrence.
-- **The ceiling of the design**: even a perfect core would only lower the one-step error from
-  0.105 to 0.083 at 64×64, because the encoder sees only the lowest Fourier modes. There is a
-  window to tell wirings apart, but it is narrow.
+  input→output shortcuts and the random graph 18. The overlap is now the same for every
+  model.
+- **A blind critic**: in Mario, the value estimate saw nothing, because it had to output
+  30–60 from small weights. Fixing it was necessary, but it was not what held PPO back:
+  exploration was.
+- **Evaluation noise**: with one game per level, the ranking between models flipped on its
+  own. Now every model plays the same levels with the same random numbers, and tests are run
+  per level and per seed.
+- **Analysis before data**: since phase 6c, the analysis is written as code and committed
+  before the training runs are launched. That is why the fly's loss cannot be reinterpreted
+  after the fact.
+
+## Against the literature
+
+As far as we can tell, nobody had predicted a fluid equation with a connectome, nobody uses
+a no-connection control, and no study combines all these controls. Published positive
+results with fly connectomes live in other regimes (fixed weights with a few parameters per
+neuron, or the graph as the only path from input to output) and are mostly 2026 preprints.
+The September 2026 wave of "the fly plays X" projects evaluates on the level it trains on,
+with almost no controls. Full report, each source labelled by review status:
+[`docs/literatura/informe.md`](docs/literatura/informe.md).
+
+## Status
+
+**Full-scale fluids:** 8 of 18 runs done (fly ×3, random ×3, rewired s0, `sin_nucleo` s0),
+paused since 23 Sep 2026. About 3 GPU hours left. It is the project's original question and
+the only task at 4,000 neurons.
+
+<!-- RESULTS -->
 
 ## Run it
 
@@ -133,6 +194,7 @@ python -m data.download_flywire           # connectome, 105 MB
 python -m data.download_annotations       # neuron positions for the viewer, 32 MB
 python -m data.simulate_ns   --config configs/ns_32_proto.yaml
 python -m connectome.subgraph --config configs/conectoma_500_proto.yaml
+python -m connectome.controls --config configs/conectoma_500_proto.yaml
 python benchmark.py --config configs/ensayo_32.yaml          # measured cost before launching
 python train.py    --config configs/ensayo_32.yaml
 python evaluate.py --config configs/ensayo_32.yaml
@@ -140,21 +202,23 @@ python visor.py    --config configs/ensayo_32.yaml --models mosca aleatorio   # 
 python video.py    --config configs/ensayo_32.yaml --models mosca              # the video above
 ```
 
-And the Mario task:
+Mario, with the recipe that separates wirings (imitation + PPO, procedural levels):
 
 ```bash
-pip install nes-py gym-super-mario-bros        # only for the NES environment
-python train_rl.py    --config configs/mario_proto.yaml        # own environment, prototype
-python evaluate_rl.py --config configs/mario.yaml --muestrea --repeticiones 6
-python diagnostico_rl.py artifacts/mario_nes_demo/mosca_s0.pt   # is the critic blind? does it use memory?
-python clonado_rl.py  --config configs/mario_proto.yaml        # can it represent the heuristic?
+C=configs/mario_proto_6c_soltar.yaml
+python clonado_rl.py  --config $C --ruido 0.1 --guarda-pesos --semilla 0
+python train_rl.py    --config $C --model mosca --seed 0 \
+    --desde artifacts/mario_proto_6c_soltar/clonado/mosca_s0.pt
+python evaluate_rl.py --config $C --levels 200 \
+    --checkpoint artifacts/mario_proto_6c_soltar/desde_clonado/mosca_s0.pt
+python diagnostico_cableado.py --config $C        # the spectrum of each wiring
+pip install nes-py gym-super-mario-bros           # only for the NES environment
 python visor_nes.py   --config configs/mario_nes_demo.yaml     # game + anatomical brain
 ```
 
-Everything is configured by YAML; seeds and configs are written into every output.
-
-The real experiment does not fit on a laptop: the full recipe for the GPU machine is in
-[`TRASPASO.md`](TRASPASO.md) (Spanish).
+Everything is configured by YAML; seeds and configs are written into every output. The real
+runs do not fit on a laptop: the recipe for the GPU machine and for Google Cloud is in
+[`TRASPASO.md`](TRASPASO.md) (Spanish) and `scripts/gcp/`.
 
 ## Data and credits
 
@@ -164,4 +228,4 @@ The real experiment does not fit on a laptop: the full recipe for the GPU machin
 - Neuron positions: [flyconnectome/flywire_annotations](https://github.com/flyconnectome/flywire_annotations).
 - Downloaded data is not redistributed in this repository.
 
-Project documentation (design and results) is in Spanish. [Leer en castellano](README.es.md).
+MIT licence.

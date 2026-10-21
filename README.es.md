@@ -9,14 +9,35 @@
 Tomamos el diagrama de conexiones del cerebro de *Drosophila* (conectoma de FlyWire, unas
 139.000 neuronas), recortamos un trozo y construimos una red recurrente artificial que
 **solo puede usar las conexiones que existen en la mosca**, respetando qué neuronas excitan y
-cuáles inhiben (ley de Dale). Después la entrenamos para predecir un flujo de Navier–Stokes
-en 2D un paso hacia delante.
+cuáles inhiben (ley de Dale). Después la ponemos a predecir un flujo de Navier–Stokes en 2D
+y a jugar a un juego de plataformas.
 
 **La pregunta:** ¿el cableado real aporta algo frente a un cableado aleatorio con las mismas
 estadísticas?
 
 > **No es una mosca.** Nada de esto es una mosca ni un modelo de cómo piensa una mosca. El
 > conectoma se usa como plano de una red artificial.
+
+## En corto (21-10-2026)
+
+- **En cinco tareas, el cableado de la mosca no le gana a ningún cableado aleatorio.** En la
+  única con resolución suficiente para separarlos (plataformas con niveles nunca vistos),
+  **pierde** contra el aleatorio, con un análisis escrito antes de tener los datos.
+- **Hemos encontrado un mecanismo que lo explicaría, y no es la biología.** Para que todos los cableados empiecen
+  en el mismo régimen dinámico, el diseño escala los pesos hasta que el autovalor mayor
+  vale 0,95. La mosca tiene un núcleo de pares de neuronas conectadas en los dos sentidos,
+  con muchas sinapsis, que dispara su autovalor mayor; al escalarlo, todas las demás
+  conexiones quedan **27 veces más débiles que en el aleatorio** (73 veces con 4.000
+  neuronas). Su recurrencia está casi apagada, lo que encaja con que empate con un control
+  sin conexiones. "Mismo radio espectral" no es "mismo trato".
+- <!-- 6E --> *(La comprobación, reentrenar con una normalización que no castiga a la mosca,
+  está corriendo.)* <!-- /6E -->
+- **Lo que falta:** el experimento original de fluidos a escala real (4.000 neuronas, malla
+  64×64) va por 8 de 18 entrenamientos, en pausa. Con una semilla, ahí la mosca sí le gana
+  al control sin conexiones.
+
+Todas las cifras, también las que salieron mal, están en [`RESULTADOS.md`](RESULTADOS.md).
+La comparación con todo lo publicado está en [`docs/literatura/informe.md`](docs/literatura/informe.md).
 
 ## Predicción registrada de antemano
 
@@ -31,10 +52,11 @@ Escrita antes de ver ningún resultado ([diseño, §3](diseno_mosca_navier_stoke
 Esperamos **H0 o H1**, y que un Fourier Neural Operator (FNO) gane a todas las redes
 cableadas. Un resultado nulo es un resultado válido.
 
-## Los siete modelos
+## Los modelos
 
 Entre los modelos cableados solo cambia la máscara de conectividad; codificador,
-decodificador, receta de entrenamiento y presupuesto de parámetros son comunes.
+decodificador, receta de entrenamiento y presupuesto de parámetros son comunes. Todos los
+pesos de la máscara se entrenan; el signo de cada neurona viene de los datos y no cambia.
 
 | Modelo | Núcleo recurrente |
 |---|---|
@@ -43,69 +65,84 @@ decodificador, receta de entrenamiento y presupuesto de parámetros son comunes.
 | `recableado` | Grafo de la mosca con aristas barajadas, **grados conservados exactamente** |
 | `denso` | Todas contra todas, menos neuronas, mismo número de pesos entrenables |
 | `sin_nucleo` | Mismas neuronas, signos y puertos que la mosca, **cero conexiones** (control) |
-| `fno` | Fourier Neural Operator (referencia superior) |
-| `persistencia` | Predice "no cambia nada" (referencia inferior) |
+| `mlp` | Red sin máscara con el mismo número de parámetros (solo en Mario) |
+| `fno` | Fourier Neural Operator (referencia superior, solo en fluidos) |
+| `persistencia` | Predice "no cambia nada" (referencia inferior, solo en fluidos) |
+
+`sin_nucleo` es el control que dice si hay algo que discutir: si la mosca no le gana, lo que
+hace no sale de su cableado, sino del codificador y el decodificador que comparten todos.
+No hemos encontrado ningún otro trabajo que lo use.
+
+## Lo que ha salido, tarea por tarea
+
+| Tarea | Aprende con | Mosca contra aleatorio / recableado | Núcleo contra `sin_nucleo` |
+|---|---|---|---|
+| Navier–Stokes, ensayo (500 neuronas, 32×32) | supervisado | empate / empate | 0,0004 menos de error: nada |
+| Navier–Stokes, escala real (4.000, 64×64) | supervisado | **pendiente**: 8 de 18 entrenamientos | semilla 0: −4 % de error en despliegue |
+| Plataformas propio | PPO desde cero | todos atascados en "saltar a la derecha"; cerrada sin resolución | — |
+| Super Mario Bros (NES), nivel 1-1 | imitación con memoria | empate (mosca 0,98, aleatorio 0,98, recableado 1,00) | lo decide la memoria: 0,98 contra 0,32 |
+| NES, niveles no vistos | PPO | empate / no resuelto | empate |
+| Plataformas procedurales, 200 niveles no vistos | imitación + PPO | **pierde** (0,462 contra 0,568) / no resuelto | empate |
+
+En la última, los seis modelos llegan a la meta en niveles que no han visto y le ganan al
+azar y a cualquier política constante, así que la tarea sí separa. Y en esa tarea el
+aleatorio y el recableado **sí** le ganan a `sin_nucleo` (+0,091 y +0,049, p < 0,0001): la
+recurrencia sirve cuando está viva. La que no la usa es la mosca.
+
+## Por qué pierde la mosca: mismo radio espectral no es mismo trato
+
+| | mosca | recableado | aleatorio |
+|---|---|---|---|
+| autovalor mayor antes de escalar (500 neuronas) | 74,5 | 16,4 | 10,4 |
+| grueso del espectro tras escalar a 0,95 (mediana de \|autovalor\|) | **0,013** | 0,102 | 0,356 |
+| lo mismo con 4.000 neuronas | **0,004** | 0,075 | 0,284 |
+| fracción de conexiones con su recíproca | 0,35 | 0,09 | 0,04 |
+| progreso en los niveles no vistos | 0,462 | 0,527 | 0,568 |
+
+El orden del grueso del espectro es el orden del resultado, y el entrenamiento no lo
+corrige: después de PPO la mosca sigue en 0,013. Se mide con
+[`diagnostico_cableado.py`](diagnostico_cableado.py), sin entrenar nada.
+
+Esto no dice que el conectoma sea malo: dice que la forma habitual de igualar cableados
+(igualar el radio espectral, que es lo habitual en reservorios) castiga a los grafos con un núcleo recíproco fuerte, y el de
+la mosca lo tiene.
+
+## Las tareas
+
+### Fluidos
 
 Recorrido: campo de vorticidad → FFT → modos de Fourier más bajos → neuronas *sensoriales*
 (mayor grado de salida) → núcleo recurrente con máscara (4 subpasos internos) → neuronas
 *motoras* (mayor grado de entrada) → modos → FFT inversa → **incremento** que se suma al campo.
 
-`sin_nucleo` es el control que dice si hay algo que discutir: si la mosca no le gana, lo que
-predice no sale de su cableado, sino del codificador y el decodificador que comparten todos.
-
-## La segunda tarea: Mario
+### Mario
 
 El mismo núcleo cableado, jugando en vez de prediciendo ([diseño, §13](diseno_mosca_navier_stokes.md)).
-Dos entornos con **la misma observación simbólica de 302 números**, así que la política es la
-misma en los dos: un motor de plataformas propio con niveles procedurales, y el Super Mario
-Bros de NES real con emulador, leyendo el mapa de casillas de la RAM. El visor anatómico
+Dos entornos con **la misma observación simbólica**, así que la política es la misma en los
+dos: un motor de plataformas propio con niveles procedurales, y el Super Mario Bros de NES
+real con emulador, leyendo el mapa de casillas de la RAM. El visor anatómico
 (`visor_nes.py`) pone el juego a un lado y, al otro, las 139.000 neuronas del conectoma con
 las del subgrafo encendiéndose encima, en sus coordenadas reales de FlyWire.
-
-<p align="center">
-  <img src="docs/media/mario_referencias.gif" alt="Las cuatro políticas de referencia jugando en el entorno de plataformas" width="100%">
-</p>
-
-Y la red cableada como la mosca jugando al Super Mario Bros de NES, con su cerebro al lado
-(300 iteraciones de PPO, política muestreada). Honestamente: esta demo entrena y mide en el
-mismo nivel, le gana al salto constante (p = 0,008) y **no se distingue de apretar botones
-al azar** (p = 0,25).
 
 <p align="center">
   <img src="docs/media/mosca_juega_nes.gif" alt="La red cableada como la mosca jugando a Super Mario Bros, con la actividad de sus neuronas al lado" width="100%">
 </p>
 
-Toda cifra se lee contra cuatro líneas de referencia (azar, siempre a la derecha, salto
-constante, heurística escrita a mano) o no se lee: **PPO cae solo en la política degenerada**
-de saltar siempre a la derecha, que ya recorre el 38 % del nivel. En el ensayo de portátil
-los seis modelos empatan y ninguno le gana a esa política.
+Esta demo (300 iteraciones de PPO, política muestreada) entrena y mide en el mismo nivel, le
+gana al salto constante y **no se distingue de apretar botones al azar** (p = 0,25).
 
-**El experimento de Mario se cierra sin resolución.** El núcleo *sí* puede representar una
-buena política: clonada de la heurística llega al 0,82-0,84 del nivel, y PPO la conserva si
-arranca de ahí. Pero desde cero PPO no la encuentra nunca, **y un MLP libre tampoco**. El
-freno es de exploración, no de cableado, así que un empate entre seis modelos pegados a la
-misma política degenerada no diría nada del conectoma. No se lanzan los 36 entrenamientos
-en GPU de esta tarea.
+Toda cifra se lee contra las políticas de referencia (azar, siempre a la derecha, salto
+constante, salto corriendo y una heurística escrita a mano) o no se lee. PPO desde cero cae
+solo en la política degenerada de saltar siempre a la derecha, y un MLP sin máscara
+también: por eso la versión que separa cableados arranca imitando a la heurística y luego
+afina con PPO, y usa la regla del NES de soltar el botón para volver a saltar, que hunde a
+todas las políticas constantes.
 
-Por imitación, la red cableada como la mosca sí se pasa el 1-1 de NES (0,947 del nivel,
-bandera en 4 de 12 partidas): [vídeo](docs/media/mosca_clonada_1-1.mp4). Es una demo, no
-ciencia: mismo nivel, copiado de una maestra escrita a mano. Y con controles, el cableado
-no se lleva el mérito: los núcleos aleatorio, recableado y denso la clonan igual de bien
-(0,91-1,00 en tres semillas), y los dos modelos sin recurrencia se atascan casi siempre
-en la primera tubería (0,32 de media). Lo que se pasa el nivel es la memoria, no la mosca.
-
-## Estado
-
-**En curso. Todavía no hay resultado final.** El experimento real (N = 4.000 neuronas, malla
-64×64, 3 semillas por modelo) está corriendo en GPU, con 8 de 18 entrenamientos hechos. La
-primera semilla ya le da la vuelta a la lectura del ensayo: a escala real el núcleo de la
-mosca **sí** se despega de no hacer nada, un 11 % mejor que la persistencia y un 4 % mejor
-que el control sin conexiones en un despliegue de 50 pasos, donde en el ensayo perdía. Con
-una sola semilla es prometedor, no confirmado; mosca contra aleatorio y recableado necesita
-los 18. Todas las cifras, también las que salieron mal, están en
-[`RESULTADOS.md`](RESULTADOS.md).
-
-<!-- RESULTADOS -->
+Por imitación, la red cableada como la mosca se pasa el 1-1 de NES
+([vídeo](docs/media/mosca_clonada_1-1.mp4)). Es una demo, no ciencia: mismo nivel y copiado
+de una maestra. Con controles, el mérito es de la memoria, no del cableado: el aleatorio y
+el recableado la clonan igual de bien, y los modelos sin recurrencia se atascan en la
+primera tubería.
 
 ## Lo que hemos aprendido por el camino
 
@@ -114,15 +151,36 @@ los 18. Todas las cifras, también las que salieron mal, están en
   falso cuando la señal que hay que aprender es ~10 % del campo. Lo detectó un test contra el
   simulador; se descartó todo lo entrenado antes con aumento.
 - **Puertos injustos**: dejar que las neuronas de entrada y de salida se solaparan libremente
-  daba a la mosca 159 atajos entrada→salida y al aleatorio 18. Ahora el solape es 92 en todos
-  los modelos.
-- **El control de cero conexiones**: a escala de ensayo (N=500, 32x32, 20.000 pasos) la
-  mosca le gana a `sin_nucleo` —las mismas neuronas sin ninguna conexión— por 0,0004 de
-  error. Es el número que dice si hay algo que discutir, y de momento dice que no: a esta
-  escala lo que predice el modelo no lo hace su recurrencia.
-- **El techo del diseño**: incluso un núcleo perfecto solo bajaría el error a un paso de
-  0,105 a 0,083 a 64×64, porque el codificador solo ve los modos de Fourier más bajos. Hay
-  margen para distinguir cableados, pero es estrecho.
+  daba a la mosca 159 atajos entrada→salida y al aleatorio 18. Ahora el solape es el mismo
+  en todos los modelos.
+- **Un crítico ciego**: en Mario, el estimador de valor no veía nada porque tenía que dar
+  números de 30-60 con pesos pequeños. Arreglarlo era necesario, pero no era lo que frenaba
+  a PPO: era la exploración.
+- **Ruido de evaluación**: con una partida por nivel, el orden entre modelos se daba la
+  vuelta solo. Ahora todos los modelos juegan los mismos niveles con los mismos números
+  aleatorios, y las pruebas se hacen por nivel y por semilla.
+- **El análisis, antes que los datos**: desde la fase 6c, el análisis se escribe como código
+  y se commitea antes de lanzar los entrenamientos. Por eso el "pierde" de la mosca no se
+  puede reinterpretar a posteriori.
+
+## Frente a la literatura
+
+Que sepamos, nadie había predicho una ecuación de fluidos con un conectoma, nadie usa un
+control sin conexiones, y ningún trabajo reúne todos estos controles a la vez. Los
+resultados positivos publicados con conectomas de mosca están en otros regímenes (pesos
+fijos con pocos parámetros por neurona, o el grafo como único camino entre entrada y
+salida) y casi todos son preprints de 2026. Los proyectos de "la mosca juega a X" de
+septiembre de 2026 evalúan en el mismo nivel en que entrenan y casi sin controles. Informe
+completo, con cada fuente etiquetada por su estado de revisión:
+[`docs/literatura/informe.md`](docs/literatura/informe.md).
+
+## Estado
+
+**Fluidos a escala real:** 8 de 18 entrenamientos hechos (mosca ×3, aleatorio ×3,
+recableado s0, `sin_nucleo` s0), en pausa desde el 23-09-2026. Faltan unas 3 horas de GPU.
+Es la pregunta original del proyecto y la única tarea a 4.000 neuronas.
+
+<!-- RESULTADOS -->
 
 ## Ejecutarlo
 
@@ -135,6 +193,7 @@ python -m data.download_flywire           # conectoma, 105 MB
 python -m data.download_annotations       # posiciones de las neuronas para el visor, 32 MB
 python -m data.simulate_ns   --config configs/ns_32_proto.yaml
 python -m connectome.subgraph --config configs/conectoma_500_proto.yaml
+python -m connectome.controls --config configs/conectoma_500_proto.yaml
 python benchmark.py --config configs/ensayo_32.yaml          # coste medido antes de lanzar
 python train.py    --config configs/ensayo_32.yaml
 python evaluate.py --config configs/ensayo_32.yaml
@@ -142,21 +201,23 @@ python visor.py    --config configs/ensayo_32.yaml --models mosca aleatorio   # 
 python video.py    --config configs/ensayo_32.yaml --models mosca              # el vídeo de arriba
 ```
 
-Y la tarea de Mario:
+Mario, con la receta que separa cableados (imitación + PPO, niveles procedurales):
 
 ```bash
-pip install nes-py gym-super-mario-bros        # solo para el entorno de NES
-python train_rl.py    --config configs/mario_proto.yaml        # entorno propio, prototipo
-python evaluate_rl.py --config configs/mario.yaml --muestrea --repeticiones 6
-python diagnostico_rl.py artifacts/mario_nes_demo/mosca_s0.pt   # ¿ve algo el crítico? ¿usa memoria?
-python clonado_rl.py  --config configs/mario_proto.yaml        # ¿puede representar la heurística?
+C=configs/mario_proto_6c_soltar.yaml
+python clonado_rl.py  --config $C --ruido 0.1 --guarda-pesos --semilla 0
+python train_rl.py    --config $C --model mosca --seed 0 \
+    --desde artifacts/mario_proto_6c_soltar/clonado/mosca_s0.pt
+python evaluate_rl.py --config $C --levels 200 \
+    --checkpoint artifacts/mario_proto_6c_soltar/desde_clonado/mosca_s0.pt
+python diagnostico_cableado.py --config $C        # el espectro de cada cableado
+pip install nes-py gym-super-mario-bros           # solo para el entorno de NES
 python visor_nes.py   --config configs/mario_nes_demo.yaml     # juego + cerebro anatómico
 ```
 
-Todo se configura por YAML; las semillas y la configuración se escriben en cada salida.
-
-El experimento real no cabe en un portátil: la receta completa para la máquina con GPU está
-en [`TRASPASO.md`](TRASPASO.md).
+Todo se configura por YAML; las semillas y la configuración se escriben en cada salida. Los
+entrenamientos de verdad no caben en un portátil: la receta para la GPU y para Google Cloud
+está en [`TRASPASO.md`](TRASPASO.md) y en `scripts/gcp/`.
 
 ## Datos y créditos
 
