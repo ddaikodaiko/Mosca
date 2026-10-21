@@ -1855,8 +1855,10 @@ Principal: afinados (clonado + PPO), politica codiciosa, 200 niveles de test.
 - **Limites:** N = 500, no el subgrafo de 4.000. La codiciosa es una foto de la ultima
   iteracion, y el progreso de validacion oscila 0,30-0,49 entre evaluaciones de una misma
   corrida. Con 3 semillas la p por semilla no baja de 0,1: la separacion es criterio de
-  consistencia, no prueba. El piloto de una semilla se reproduce exacto (mosca s0 afinada
-  0,431).
+  consistencia, no prueba. Las semillas cambian el entrenamiento, no la mascara: hay una
+  sola instancia de aleatorio y una de recableado (`artifacts/conectoma_500_proto/`), asi
+  que el "pierde" es contra un sorteo de Erdos-Renyi, no contra la familia. El piloto de
+  una semilla se reproduce exacto (mosca s0 afinada 0,431).
 - **Lo que no se puede decir:** que el conectoma sea peor en general. Es un fragmento de
   500 neuronas elegido por grado, con los pesos entrenables, en una tarea ajena a la
   mosca. Para el signo hay hipotesis y ninguna medida: los centros de la cola de grados,
