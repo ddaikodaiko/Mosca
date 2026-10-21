@@ -1800,3 +1800,68 @@ escrito; no cambia ninguna comparacion ni ningun umbral.
    y `evaluate_rl.py` se salta en silencio los checkpoints que falten. Antes de leer nada
    se comprueba que hay 18 checkpoints afinados y que cada modelo tiene 3 semillas en
    `series_por_semilla` de los tres JSON. Si falta alguna, el analisis se para y se avisa.
+
+## 21-10-2026: veredicto de la fase 6d (leido con el analisis registrado)
+
+La tanda relanzada el 20-10 a las 16:26 UTC termino a las 17:20 UTC con codigo 0: 18
+clonados, 18 afinados hasta la iteracion 300 y las tres evaluaciones. `analiza_6d.py`
+paso la comprobacion previa (seis modelos x tres semillas x los mismos 200 niveles en los
+tres informes) y sus 27 p coinciden con las de `contrastes`. Artefactos en
+`artifacts/mario_proto_6c_soltar_gcp/` (con `logs_gcp/` y `analisis_6d.{json,txt}`).
+
+Principal: afinados (clonado + PPO), politica codiciosa, 200 niveles de test.
+
+| fila | progreso | metas | por semilla |
+|---|---|---|---|
+| mosca | 0,462 | 10,8 % | 0,431 0,482 0,474 |
+| aleatorio | 0,568 | 21,7 % | 0,598 0,574 0,534 |
+| recableado | 0,527 | 19,0 % | 0,633 0,447 0,501 |
+| sin_nucleo | 0,477 | 10,8 % | 0,513 0,474 0,444 |
+| denso | 0,496 | 9,8 % | 0,468 0,494 0,525 |
+| mlp | 0,562 | 24,3 % | 0,657 0,596 0,434 |
+| azar | 0,230 | 0 % | |
+| salto_corriendo (mejor constante) | 0,106 | 0 % | |
+| heuristica (la maestra) | 0,758 | 54,5 % | |
+
+- **Pregunta del proyecto:** mosca contra aleatorio, **pierde** (-0,106; la mosca va
+  mejor en 36 de 200 niveles; p por nivel < 1e-4 con umbral de Holm 0,025; sus tres
+  semillas quedan por debajo de las tres del aleatorio). Contra recableado, **no
+  resuelto** (-0,064, p < 1e-4, pero las semillas se solapan: recableado s1 saca 0,447).
+  Es la primera vez que la regla registrada da algo distinto de empate o no resuelto, y
+  sale **en contra** de la mosca. H0 predecia empate.
+- La muestreada (secundaria) apunta al mismo lado con otro reparto: contra aleatorio
+  **empate** (-0,030), contra recableado **pierde** (-0,044, semillas separadas). En
+  ninguna de las dos evaluaciones queda la mosca por encima de un cableado de control.
+
+| muestreada | mosca | aleatorio | recableado | sin_nucleo | denso | mlp |
+|---|---|---|---|---|---|---|
+| progreso | 0,587 | 0,617 | 0,631 | 0,557 | 0,578 | 0,676 |
+| metas | 28,4 % | 29,6 % | 31,8 % | 22,8 % | 26,8 % | 40,4 % |
+
+- **Tras PPO el nucleo sigue sin aportar:** mosca contra `sin_nucleo`, **empate** (-0,015,
+  p 0,25). Antes de PPO si aporta: clonada, la mosca le gana a `sin_nucleo` (0,299 contra
+  0,222), pero ya queda por debajo del aleatorio (0,375) y del recableado (0,371).
+- **PPO sube a los cinco nucleos y al MLP no:** +0,163 mosca, +0,193 aleatorio, +0,156
+  recableado, +0,255 `sin_nucleo`, +0,387 denso, todos significativos; MLP -0,001. El MLP
+  ya llega a 0,563 solo imitando.
+- **Los seis juegan:** llegan a la meta en niveles no vistos (codiciosa: mosca 37 de 200,
+  aleatorio 80, recableado 72, `sin_nucleo` 34, denso 49, MLP 101) y le ganan al azar y a
+  la mejor constante. Lo que la 6d si demuestra es que la receta clonado + PPO funciona
+  con cualquier cableado.
+- **En la practica la tarea es un bit por paso.** Los 18 modelos codiciosos usan casi solo
+  "derecha + carrera" y "derecha + salto + carrera": deciden cuando saltar. La mosca salta
+  el 64 % de los pasos en las tres semillas, el aleatorio el 46-52 %. La mosca ya salta asi
+  recien clonada (65-68 %) y PPO no lo cambia.
+- **Limites:** N = 500, no el subgrafo de 4.000. La codiciosa es una foto de la ultima
+  iteracion, y el progreso de validacion oscila 0,30-0,49 entre evaluaciones de una misma
+  corrida. Con 3 semillas la p por semilla no baja de 0,1: la separacion es criterio de
+  consistencia, no prueba. El piloto de una semilla se reproduce exacto (mosca s0 afinada
+  0,431).
+- **Lo que no se puede decir:** que el conectoma sea peor en general. Es un fragmento de
+  500 neuronas elegido por grado, con los pesos entrenables, en una tarea ajena a la
+  mosca. Para el signo hay hipotesis y ninguna medida: los centros de la cola de grados,
+  que el aleatorio no tiene, y la reciprocidad (fraccion de aristas con su reciproca:
+  0,346 en la mosca, 0,092 en el recableado, 0,035 en el aleatorio, medido el
+  20-10-2026). El orden de las medias (mosca 0,462 < recableado 0,527 < aleatorio 0,568)
+  encaja con las dos, pero recableado contra aleatorio no estaba en el plan y no se
+  contrasta aqui.
