@@ -23,15 +23,19 @@ estadísticas?
 - **En cinco tareas, el cableado de la mosca no le gana a ningún cableado aleatorio.** En la
   única con resolución suficiente para separarlos (plataformas con niveles nunca vistos),
   **pierde** contra el aleatorio, con un análisis escrito antes de tener los datos.
-- **Hemos encontrado un mecanismo que lo explicaría, y no es la biología.** Para que todos los cableados empiecen
+- **Encontramos un sesgo del diseño que castiga a la mosca.** Para que todos los cableados empiecen
   en el mismo régimen dinámico, el diseño escala los pesos hasta que el autovalor mayor
   vale 0,95. La mosca tiene un núcleo de pares de neuronas conectadas en los dos sentidos,
   con muchas sinapsis, que dispara su autovalor mayor; al escalarlo, todas las demás
   conexiones quedan **27 veces más débiles que en el aleatorio** (73 veces con 4.000
   neuronas). Su recurrencia está casi apagada, lo que encaja con que empate con un control
   sin conexiones. "Mismo radio espectral" no es "mismo trato".
-- <!-- 6E --> *(La comprobación, reentrenar con una normalización que no castiga a la mosca,
-  está corriendo.)* <!-- /6E -->
+- <!-- 6E --> **Pero no es lo que la hace perder.** Reentrenada con una normalización que
+  iguala la corriente de entrada de cada neurona (la recurrencia de la mosca pasa de estar
+  27 veces más apagada a 4), la mosca mejora un poco (0,462 → 0,503 de progreso) y el
+  aleatorio mejora más (0,568 → 0,653): la distancia no se cierra, crece. Con el análisis
+  escrito antes de los datos, el reescalado queda descartado como causa. Por qué pierde
+  sigue sin estar medido. <!-- /6E -->
 - **Lo que falta:** el experimento original de fluidos a escala real (4.000 neuronas, malla
   64×64) va por 8 de 18 entrenamientos, en pausa. Con una semilla, ahí la mosca sí le gana
   al control sin conexiones.
@@ -89,7 +93,7 @@ azar y a cualquier política constante, así que la tarea sí separa. Y en esa t
 aleatorio y el recableado **sí** le ganan a `sin_nucleo` (+0,091 y +0,049, p < 0,0001): la
 recurrencia sirve cuando está viva. La que no la usa es la mosca.
 
-## Por qué pierde la mosca: mismo radio espectral no es mismo trato
+## Mismo radio espectral no es mismo trato (pero no es por eso por lo que pierde)
 
 | | mosca | recableado | aleatorio |
 |---|---|---|---|
@@ -98,6 +102,8 @@ recurrencia sirve cuando está viva. La que no la usa es la mosca.
 | lo mismo con 4.000 neuronas | **0,004** | 0,075 | 0,284 |
 | fracción de conexiones con su recíproca | 0,35 | 0,09 | 0,04 |
 | progreso en los niveles no vistos | 0,462 | 0,527 | 0,568 |
+| grueso del espectro con normalización por filas (`row`) | 0,146 | 0,498 | 0,595 |
+| progreso con `row` | 0,503 | 0,432 | 0,653 |
 
 El orden del grueso del espectro es el orden del resultado, y el entrenamiento no lo
 corrige: después de PPO la mosca sigue en 0,013. Se mide con
@@ -106,6 +112,13 @@ corrige: después de PPO la mosca sigue en 0,013. Se mide con
 Esto no dice que el conectoma sea malo: dice que la forma habitual de igualar cableados
 (igualar el radio espectral, que es lo habitual en reservorios) castiga a los grafos con un núcleo recíproco fuerte, y el de
 la mosca lo tiene.
+
+Lo que no dice es que eso explique la derrota. Se comprobó con la fase 6e (exploratoria,
+análisis escrito antes de los datos): la misma tanda con `core.normalisation: row`, que
+iguala la corriente de entrada de cada neurona antes de escalar. La recurrencia de la mosca
+se despierta (grueso 0,146) y la mosca mejora, pero el aleatorio mejora más, y la mosca
+sigue perdiendo contra él (−0,150, sus tres semillas por debajo). El veredicto registrado
+es "sin efecto" contra los dos controles: el reescalado queda descartado como causa.
 
 ## Las tareas
 

@@ -22,15 +22,19 @@ statistics?
 - **Across five tasks, the fly wiring never beats random wiring.** In the only task with
   enough resolution to tell wirings apart (platform levels the model has never seen), it
   **loses** to random wiring, under an analysis written as code before the data existed.
-- **We found a mechanism that would explain it, and it is not biology.** To start every
+- **We found a design bias that penalises the fly.** To start every
   wiring in the same dynamical regime, the design scales the weights until the largest
   eigenvalue is 0.95. The fly has a core of neuron pairs connected both ways with many
   synapses, which inflates its largest eigenvalue; once that is scaled down, every other
   connection is **27 times weaker than in the random graph** (73 times with 4,000 neurons).
   Its recurrence is nearly switched off, which fits with it tying a control that has no
   connections at all. Equal spectral radius is not equal treatment.
-- <!-- 6E --> *(The check — retraining with a normalisation that does not penalise the fly —
-  is running.)* <!-- /6E -->
+- <!-- 6E --> **But it is not what makes it lose.** Retrained with a normalisation that
+  equalises each neuron's input current (the fly's recurrence goes from 27 times more
+  switched off to 4), the fly improves a little (0.462 → 0.503 progress) and the random
+  wiring improves more (0.568 → 0.653): the gap does not close, it widens. Under the
+  analysis written before the data, the rescaling is ruled out as the cause. Why the fly
+  loses is still unmeasured. <!-- /6E -->
 - **Still missing:** the original full-scale fluid experiment (4,000 neurons, 64×64 grid)
   is at 8 of 18 training runs, paused. With one seed, the fly does beat the no-connection
   control there.
@@ -90,7 +94,7 @@ random buttons and every constant policy, so the task does discriminate. And in 
 random and rewired wiring **do** beat `sin_nucleo` (+0.091 and +0.049, p < 0.0001):
 recurrence helps when it is alive. The one not using it is the fly.
 
-## Why the fly loses: equal spectral radius is not equal treatment
+## Equal spectral radius is not equal treatment (but that is not why the fly loses)
 
 | | fly | rewired | random |
 |---|---|---|---|
@@ -99,6 +103,8 @@ recurrence helps when it is alive. The one not using it is the fly.
 | same with 4,000 neurons | **0.004** | 0.075 | 0.284 |
 | fraction of connections with a reciprocal partner | 0.35 | 0.09 | 0.04 |
 | progress on unseen levels | 0.462 | 0.527 | 0.568 |
+| bulk of the spectrum with row normalisation (`row`) | 0.146 | 0.498 | 0.595 |
+| progress with `row` | 0.503 | 0.432 | 0.653 |
 
 The order of the spectral bulk is the order of the results, and training does not undo it:
 after PPO the fly is still at 0.013. Measured with
@@ -107,6 +113,13 @@ after PPO the fly is still at 0.013. Measured with
 This does not say the connectome is bad. It says that the usual way of putting wirings on
 an equal footing (matching the spectral radius, standard practice in reservoir computing)
 penalises graphs with a strong reciprocal core, and the fly's has one.
+
+What it does not say is that this explains the defeat. Phase 6e checked it (exploratory,
+analysis written before the data): the same batch with `core.normalisation: row`, which
+equalises each neuron's input current before scaling. The fly's recurrence wakes up (bulk
+0.146) and the fly improves, but the random wiring improves more, and the fly still loses
+to it (−0.150, all three of its seeds below). The registered verdict is "no effect"
+against both controls: the rescaling is ruled out as the cause.
 
 ## The tasks
 

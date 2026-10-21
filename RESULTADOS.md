@@ -1949,3 +1949,71 @@ registrado de la 6d**, que sigue siendo "pierde".
   efecto" contra los dos, el reescalado queda descartado como causa y quedan H5 (donde caen
   los conteos) y H6 (fragmento de 500 neuronas).
 - **Coste:** 9 entrenamientos y 3 evaluaciones en `mosca-6c`, alrededor de una hora.
+
+## 21-10-2026: veredicto de la fase 6e (EXPLORATORIA, leido con el analisis registrado)
+
+La tanda de `mosca-6c` termino el 21-10 a las 11:55 UTC con codigo 0: 9 clonados, 9
+afinados y las tres evaluaciones. El codigo (`codigo_a7db8eb.tar.gz` en el bucket, nombre
+anterior a la reescritura) es identico a dbe4e24 en todo el Python y los YAML; solo
+cambian documentos y comentarios. `analiza_6e.py` paso la
+comprobacion previa (los mismos 200 niveles y las mismas referencias en la 6e y en la
+6d). Artefactos en `artifacts/mario_proto_6e_row_gcp/` (con `logs_gcp/` y
+`analisis_6e.{json,txt}`).
+
+Principal: afinados, codiciosa, 200 niveles de test.
+
+| fila | progreso | metas | por semilla |
+|---|---|---|---|
+| mosca, `row` | 0,503 | 14,7 % | 0,511 0,493 0,505 |
+| aleatorio, `row` | 0,653 | 33,8 % | 0,739 0,578 0,641 |
+| recableado, `row` | 0,432 | 10,2 % | 0,446 0,530 0,319 |
+| mosca, `max_eig` (6d) | 0,462 | 10,8 % | 0,431 0,482 0,474 |
+| aleatorio, `max_eig` (6d) | 0,568 | 21,7 % | 0,598 0,574 0,534 |
+| recableado, `max_eig` (6d) | 0,527 | 19,0 % | 0,633 0,447 0,501 |
+| sin_nucleo (6d) | 0,477 | 10,8 % | 0,513 0,474 0,444 |
+
+| interaccion d = (mosca_row - X_row) - (mosca_max - X_max) | deficit `max_eig` | deficit `row` | d | p por nivel (Holm) | D_s por semilla | veredicto |
+|---|---|---|---|---|---|---|
+| X = aleatorio | -0,106 | -0,150 | -0,044 | 0,008 (0,05) | -0,062 +0,007 -0,077 | **sin efecto** |
+| X = recableado | -0,064 | +0,071 | +0,135 | < 1e-4 (0,025) | +0,266 -0,073 +0,212 | **sin efecto** |
+
+- **Veredicto registrado: sin efecto contra los dos controles.** Por la regla escrita
+  antes de los datos, **el reescalado espectral queda descartado como causa** del deficit
+  de la mosca en la 6d. La prediccion principal de H1 no se cumple.
+- **Que quiere decir "sin efecto" aqui.** La regla lo da cuando la media no supera la
+  desviacion entre semillas, y eso es lo que pasa, pero no con una interaccion nula:
+  contra el aleatorio la interaccion va **en contra** de H1 (el deficit crece de -0,106 a
+  -0,150, dos semillas de tres en ese sentido); contra el recableado va a favor
+  (+0,135), pero una semilla de tres dice lo contrario y la media la arrastran el
+  recableado `row` s2 (0,319) y s0 (0,446). Ninguna de las dos lecturas apoya que igualar
+  la corriente de entrada saque a la mosca del sotano.
+- **`row` le sienta bien a la mosca y mejor al aleatorio.** Mosca `row` contra mosca
+  `max_eig`: **gana** (+0,040, las tres semillas por encima). Aleatorio `row` contra
+  aleatorio `max_eig`: +0,084, no resuelto (semillas solapadas). Recableado: -0,095,
+  empate. La mosca con `row` sigue **perdiendo** contra el aleatorio con `row` (-0,150,
+  39 de 200 niveles, semillas separadas) y contra el recableado con `row` sale no
+  resuelto (+0,071, semillas solapadas).
+- **Contra `sin_nucleo`, todavia sin despegarse.** Codiciosa +0,026 (p 0,058, no
+  resuelto); en la muestreada +0,045, **gana**. Las otras dos predicciones de H1 salen
+  una si (mosca_row > mosca_max) y otra a medias.
+- **Muestreada (secundaria):** mismo dibujo. Interaccion contra aleatorio -0,018 (no
+  resuelto), contra recableado +0,046 (sin efecto). Mosca `row` contra aleatorio `row`
+  **pierde** (-0,048, semillas separadas); contra recableado `row`, empate (+0,002).
+- **Solo clonados (secundario):** aqui si sale "reduce el deficit" contra el aleatorio
+  (+0,114, las tres semillas a favor): recien clonada, la mosca con `row` empata con el
+  aleatorio con `row` (0,352 contra 0,314) y le gana a `sin_nucleo` (+0,130, semillas
+  separadas). Pero parte de eso es que el aleatorio clonado empeora con `row` (0,375 ->
+  0,314), y PPO lo deshace: tras afinar, el aleatorio `row` sube +0,339 y la mosca
+  `row` +0,151.
+- **Lo que queda en pie del diagnostico.** El hecho medido sigue siendo cierto: con
+  `max_eig` la recurrencia de la mosca queda casi apagada (grueso del espectro 0,013
+  contra 0,356). Lo que la 6e dice es que **no es eso lo que la hace perder**: con la
+  recurrencia mucho mas viva (0,146) el deficit contra el aleatorio no baja. La frase del
+  README "hemos encontrado un mecanismo que lo explicaria" no se sostiene y se retira.
+  Quedan H5 (donde caen los conteos de sinapsis) y H6 (fragmento de 500 neuronas elegido
+  por grado), sin medir.
+- **Limites:** los mismos de la 6d (N = 500, una instancia de cada control, 3 semillas,
+  foto de la ultima iteracion), y uno mas: la mitad `max_eig` de cada interaccion sale de
+  otra tanda (la 6d), con el mismo codigo salvo la normalizacion y los mismos niveles.
+  La varianza entre semillas de los controles con `row` (recableado 0,319-0,530) es mayor
+  que la de la 6d, y con tres semillas no se puede saber si es real.

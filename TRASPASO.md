@@ -8,6 +8,17 @@ tocar en el código, solo ejecutar en orden.
 antiguos; el codigo no cambio, pero 25 commits cambiaron de hash. Los documentos citan
 ya los nuevos. Los `.tar.gz` del bucket conservan el nombre de antes.
 
+**Al 21-10-2026, tarde: la 6e ha terminado y esta leida** (11:55 UTC, codigo 0;
+veredicto en RESULTADOS.md: el reescalado espectral queda descartado como causa). Bajada
+en `artifacts/mario_proto_6e_row_gcp/`. **En el PC corre la tanda de fluidos** desde las
+17:48 (hora del PC): habia 15 de 18 hechos, no 8; faltaban `denso s0`, `fno s1` y
+`fno s2`, que reanudan de su instantanea. El lanzador
+(`artifacts/train_64/tanda_21oct.cmd`, en el PC) corre `scripts/tanda.sh` y despues
+`evaluate.py`; log en `artifacts/train_64/tanda_21oct.log`. Los logs y el
+`eval_report.json` de antes quedan al lado como `*.antes_21oct.*`. El codigo de fluidos
+del PC (2772f6d) es identico al de HEAD. Se lanzo por SSH, no como tarea programada: si
+se corta la conexion, se relanza el mismo `.cmd` y sigue donde iba.
+
 **Al 21-10-2026: la 6d ha terminado** (20-10, 17:20 UTC, codigo 0; veredicto en
 RESULTADOS.md, seccion del 21-10-2026). Todo lo del bucket esta bajado en
 `artifacts/mario_proto_6c_soltar_gcp/`. No hay nada corriendo ni en Google Cloud ni en el
@@ -17,7 +28,7 @@ siguen cobrando el disco).
 **Al 19-10-2026: la 6c ha terminado (veredicto en RESULTADOS.md) y corre la fase 6d en
 Google Cloud.** Clonado de la heuristica + PPO desde el clonado, seis modelos x semillas
 0-2, entorno propio con `release_to_jump`, en la VM `mosca-6c` (8 vCPU), con el codigo de
-`af21c4f` y el plan de analisis ya escrito en RESULTADOS.md. Lanzador
+`ea8865f` y el plan de analisis ya escrito en RESULTADOS.md. Lanzador
 `scripts/gcp/run_6d.sh`; la VM se apaga sola. El PC sigue sin nada que ejecutar.
 
 **20-10-2026: la primera tanda se colgo y se relanzo a las 16:26 UTC.** El clonado
@@ -25,7 +36,7 @@ termino a las 17:47 UTC del 19-10, pero el `wait` sin argumentos tambien esperab
 bucle de subida y, en bash 5.2, a la sustitucion de proceso del `tee` del log. Ninguno de
 los dos acaba nunca, asi que la VM se quedo 22 h encendida sin hacer nada. Ahora se
 espera solo a los PID del clonado. Se relanzo desde cero con el mismo commit de codigo
-(`af21c4f`); lo de la tanda colgada queda en `~/*_colgada` dentro de la VM.
+(`ea8865f`); lo de la tanda colgada queda en `~/*_colgada` dentro de la VM.
 
 ```bash
 B=gs://mosca-runs-317660842762/6d
