@@ -193,7 +193,7 @@ def main() -> int:
         "modelos": filas,
     }
     ruta = salida / "benchmark.json"
-    ruta.write_text(json.dumps(informe, indent=2, ensure_ascii=False))
+    ruta.write_text(json.dumps(informe, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"informe en {ruta}")
     return 0
 

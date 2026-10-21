@@ -586,7 +586,7 @@ def main() -> int:
         )
     )
     report_path = out_dir / f"train_report{suffix}.json"
-    report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False))
+    report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"\ninforme en {report_path}")
     return 0
 

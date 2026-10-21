@@ -2017,3 +2017,79 @@ Principal: afinados, codiciosa, 200 niveles de test.
   otra tanda (la 6d), con el mismo codigo salvo la normalizacion y los mismos niveles.
   La varianza entre semillas de los controles con `row` (recableado 0,319-0,530) es mayor
   que la de la 6d, y con tres semillas no se puede saber si es real.
+
+## 21-10-2026: fases 4 y 5 a escala real, los 18 entrenamientos (RTX 3060 Ti)
+
+Es el experimento original del proyecto: N = 4.000, 128 modos, malla 64x64, 20.000 pasos
+de fase A y curriculo 5/10/20 en la fase B, seis modelos x semillas 0-2 sobre un unico
+subgrafo. Habia 15 de 18 hechos en el PC (22-09, 23-09 y 28-09); los tres que faltaban
+(`denso s0`, `fno s1`, `fno s2`) se reanudaron hoy de su instantanea (46, 37 y 18 min).
+Los 18 informes llevan la misma config, y el codigo de fluidos no cambia desde el 22-09 a
+las 09:40, antes del primer entrenamiento (y es identico al de HEAD). `evaluate.py` sobre
+las 40 trayectorias de test, despliegue de 50 pasos. Informes y figuras en
+`artifacts/train_64_pc/` (en el PC, `artifacts/train_64/`; el `eval_report.json` del 22-09,
+con tres modelos, queda como `eval_report.antes_21oct.json`).
+
+| modelo | L2 1 paso | L2 despliegue (50) | t hasta corr < 0,8 | E(k) inyeccion | E(k) alcanzable | E(k) fuera |
+|---|---|---|---|---|---|---|
+| mosca | 0,1003 ± 0,0001 | 0,7871 ± 0,0030 | 1,161 ± 0,015 | 0,088 | 0,161 | 0,040 |
+| aleatorio | 0,1001 ± 0,0001 | 0,7701 ± 0,0045 | 1,198 ± 0,013 | 0,094 | 0,219 | 0,040 |
+| recableado | 0,0999 ± 0,0000 | 0,7663 ± 0,0028 | 1,221 ± 0,010 | 0,092 | 0,180 | 0,040 |
+| denso | 0,1008 ± 0,0001 | 0,7867 ± 0,0023 | 1,148 ± 0,006 | 0,077 | 0,246 | 0,040 |
+| sin_nucleo | 0,1018 ± 0,0000 | 0,8216 ± 0,0006 | 1,074 ± 0,003 | 0,096 | 0,146 | 0,040 |
+| fno | 0,0363 ± 0,0041 | 0,1124 ± 0,0029 | >= 5,0 (censurado) | 0,003 | 0,006 | 0,068 |
+| persistencia | 0,1010 | 0,8866 | 1,08 | 0,028 | 0,019 | 0,040 |
+
+(media ± desviacion entre las tres semillas de entrenamiento; E(k) es |log10(E_pred/E_real)|
+medio por banda: inyeccion k = 1-4, alcanzable 5-9, fuera del codificador 10-21.)
+
+Lectura en el orden fijado en TRASPASO.md (seccion 5, "Como se lee el resultado"):
+
+1. **Contra la persistencia: el nucleo se despega.** Mosca -0,0995 en despliegue (11 %
+   menos de error), con sus tres semillas entre 0,784 y 0,789 contra 0,887. A un paso,
+   -0,0007. `evaluate.py` lo marca "no juzgable" solo porque la persistencia no tiene
+   semillas. El experimento **tiene resolucion**, que en el prototipo de 32x32 no tenia.
+2. **Contra `sin_nucleo`: la mosca gana.** -0,0345 en despliegue (4 %), -0,0015 a un paso,
+   +0,087 de tiempo de correlacion; p < 1e-4 por trayectoria y por encima de la
+   variabilidad entre semillas en las tres metricas. El cableado de la mosca hace algo.
+3. **Mosca contra aleatorio: pierde.** +0,0170 de error en despliegue (2,2 % peor), +0,0002
+   a un paso, -0,0375 de tiempo de correlacion; p < 1e-4 por trayectoria y por encima de la
+   variabilidad entre semillas en las tres. Sus tres semillas quedan peor que las tres del
+   aleatorio en despliegue (0,7836-0,7893 contra 0,7659-0,7749) y en tiempo de correlacion.
+   **Contra recableado, igual:** +0,0208 en despliegue (2,7 % peor), +0,0004 a un paso,
+   -0,060 de tiempo de correlacion, las mismas p y las semillas separadas. **Contra el
+   denso, empate** en despliegue (+0,0004, p 0,87) y en tiempo de correlacion (dentro de la
+   variabilidad entre semillas); a un paso la mosca va 0,0005 mejor.
+4. **Espectro (descriptivo, `evaluate.py` no lo contrasta):** en la banda que el
+   codificador alcanza, todos los nucleos deforman E(k) mucho mas que la persistencia
+   (0,15-0,25 contra 0,02). La mosca la deforma **menos** que el aleatorio (0,161 contra
+   0,219) y el recableado (0,180), y algo mas que `sin_nucleo` (0,146). La banda de fuera
+   del codificador sale igual en los cinco nucleos (0,040, la de la persistencia), como
+   tenia que salir por construccion.
+
+- **Prediccion registrada (H0/H1: mosca empata con aleatorio y recableado; el FNO gana a
+  todos).** La mitad del FNO se cumple de sobra: 7 veces menos error en despliegue que
+  cualquier nucleo, y no se descorrelaciona en los 50 pasos. La otra mitad **no**: la
+  mosca no empata, queda por debajo de los dos controles, con poco margen (2-3 %) y con
+  las tres semillas del mismo lado. H2 (ventaja por estructura especifica) queda
+  descartada a esta escala; H1 no aplica porque no hay ventaja que explicar.
+- **El mismo signo que la 6d, en otra tarea, a otra escala y con supervision directa.** En
+  plataformas (N = 500, clonado + PPO) la mosca perdia contra el aleatorio y quedaba en
+  "no resuelto" contra el recableado; aqui pierde contra los dos. Y en las dos tareas la
+  mosca queda entre `sin_nucleo` y los controles: en despliegue sin_nucleo 0,822 > mosca
+  0,787 > aleatorio 0,770 > recableado 0,766. Encaja con una recurrencia mas debil (con
+  `max_eig`, grueso del espectro 0,004 en la mosca contra 0,284 en el aleatorio a
+  N = 4.000), pero la 6e descarto el reescalado como causa en plataformas, y aqui no se ha
+  probado: es una correlacion, no una explicacion.
+- **El margen es estrecho.** A un paso todos los nucleos estan en 0,0999-0,1008, contra
+  0,1010 de la persistencia: como mucho un 1 % menos de error. Con el incremento perfecto
+  en los 128 modos, la fase 4 midio que se podia bajar un 21 % (de 0,1054 a 0,0833, en
+  aquel conjunto), asi que los nucleos recorren una vigesima parte de la ventana. Lo que
+  separa a los modelos es el despliegue, y ahi las diferencias entre cableados son de
+  0,02 sobre 0,77.
+- **Limites:** una sola instancia de aleatorio y de recableado (las semillas son de
+  entrenamiento, sobre un unico subgrafo compartido, como fija la fase 2), asi que
+  "pierde" es contra un sorteo de Erdos-Renyi y un recableado concretos, no contra la
+  familia. 40 trayectorias de test. Tres de los 18 entrenamientos se reanudaron de
+  instantanea, que en `train.py` da los mismos pesos bit a bit (test que lo fija). El
+  tiempo de correlacion del FNO esta censurado en 5,0.

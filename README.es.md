@@ -20,25 +20,31 @@ estadísticas?
 
 ## En corto (21-10-2026)
 
-- **En cinco tareas, el cableado de la mosca no le gana a ningún cableado aleatorio.** En la
-  única con resolución suficiente para separarlos (plataformas con niveles nunca vistos),
-  **pierde** contra el aleatorio, con un análisis escrito antes de tener los datos.
+- **En seis tareas, el cableado de la mosca no le gana a ningún cableado aleatorio.** En las
+  dos con resolución suficiente para separarlos, **pierde**. En fluidos a escala real, el
+  experimento original del proyecto (4.000 neuronas, malla 64×64, tres semillas), su error
+  en un despliegue de 50 pasos es un 2,2 % mayor que el del aleatorio y un 2,7 % mayor que
+  el del recableado, con sus tres semillas por detrás de las seis de los controles. En
+  plataformas con niveles nunca vistos pierde contra el aleatorio, con un análisis escrito
+  antes de tener los datos.
+- **El cableado de la mosca sí hace algo, pero menos que uno al azar.** En fluidos le gana
+  a no hacer nada (11 % menos de error que la persistencia) y al control sin conexiones
+  (4 % menos), pero queda entre ese control y los cableados aleatorios. El FNO, la
+  referencia superior, tiene siete veces menos error que cualquier red cableada, como
+  predecíamos.
 - **Encontramos un sesgo del diseño que castiga a la mosca.** Para que todos los cableados empiecen
   en el mismo régimen dinámico, el diseño escala los pesos hasta que el autovalor mayor
   vale 0,95. La mosca tiene un núcleo de pares de neuronas conectadas en los dos sentidos,
   con muchas sinapsis, que dispara su autovalor mayor; al escalarlo, todas las demás
   conexiones quedan **27 veces más débiles que en el aleatorio** (73 veces con 4.000
-  neuronas). Su recurrencia está casi apagada, lo que encaja con que empate con un control
-  sin conexiones. "Mismo radio espectral" no es "mismo trato".
-- <!-- 6E --> **Pero no es lo que la hace perder.** Reentrenada con una normalización que
+  neuronas). Su recurrencia está casi apagada, lo que encaja con que en plataformas empate
+  con un control sin conexiones. "Mismo radio espectral" no es "mismo trato".
+- <!-- 6E --> **Pero no es lo que la hace perder.** En plataformas, reentrenada con una normalización que
   iguala la corriente de entrada de cada neurona (la recurrencia de la mosca pasa de estar
   27 veces más apagada a 4), la mosca mejora un poco (0,462 → 0,503 de progreso) y el
   aleatorio mejora más (0,568 → 0,653): la distancia no se cierra, crece. Con el análisis
   escrito antes de los datos, el reescalado queda descartado como causa. Por qué pierde
   sigue sin estar medido. <!-- /6E -->
-- **Lo que falta:** el experimento original de fluidos a escala real (4.000 neuronas, malla
-  64×64) va por 8 de 18 entrenamientos, en pausa. Con una semilla, ahí la mosca sí le gana
-  al control sin conexiones.
 
 Todas las cifras, también las que salieron mal, están en [`RESULTADOS.md`](RESULTADOS.md).
 La comparación con todo lo publicado está en [`docs/literatura/informe.md`](docs/literatura/informe.md).
@@ -82,7 +88,7 @@ No hemos encontrado ningún otro trabajo que lo use.
 | Tarea | Aprende con | Mosca contra aleatorio / recableado | Núcleo contra `sin_nucleo` |
 |---|---|---|---|
 | Navier–Stokes, ensayo (500 neuronas, 32×32) | supervisado | empate / empate | 0,0004 menos de error: nada |
-| Navier–Stokes, escala real (4.000, 64×64) | supervisado | **pendiente**: 8 de 18 entrenamientos | semilla 0: −4 % de error en despliegue |
+| Navier–Stokes, escala real (4.000, 64×64) | supervisado | **pierde / pierde** (despliegue 0,787 contra 0,770 / 0,766) | gana: −4 % de error en despliegue |
 | Plataformas propio | PPO desde cero | todos atascados en "saltar a la derecha"; cerrada sin resolución | — |
 | Super Mario Bros (NES), nivel 1-1 | imitación con memoria | empate (mosca 0,98, aleatorio 0,98, recableado 1,00) | lo decide la memoria: 0,98 contra 0,32 |
 | NES, niveles no vistos | PPO | empate / no resuelto | empate |
@@ -189,11 +195,46 @@ completo, con cada fuente etiquetada por su estado de revisión:
 
 ## Estado
 
-**Fluidos a escala real:** 8 de 18 entrenamientos hechos (mosca ×3, aleatorio ×3,
-recableado s0, `sin_nucleo` s0), en pausa desde el 23-09-2026. Faltan unas 3 horas de GPU.
-Es la pregunta original del proyecto y la única tarea a 4.000 neuronas.
+**Fluidos a escala real: terminado (21-10-2026).** Los 18 entrenamientos (seis modelos ×
+tres semillas) en una RTX 3060 Ti. Es la pregunta original del proyecto y la única tarea a
+4.000 neuronas. La mosca le gana a la persistencia y a `sin_nucleo` y pierde contra el
+aleatorio y el recableado en las tres métricas (error a un paso, error en despliegue y
+tiempo hasta descorrelacionarse), por encima de la variabilidad entre semillas; contra el
+denso empata en despliegue. La predicción registrada era empate: el signo es el contrario
+y el margen pequeño (0,02 sobre 0,77). Hay un solo sorteo de aleatorio y uno de
+recableado. Detalle en [`RESULTADOS.md`](RESULTADOS.md), sección del 21-10-2026.
 
 <!-- RESULTADOS -->
+Cifras de `configs/entrenamiento_64.yaml`, conjunto `test`, 3 semilla(s) por modelo, despliegue de 50 pasos. Media ± desviacion entre semillas; error espectral por bandas y en log.
+
+| modelo | L2 1 paso | L2 despliegue | t hasta corr<0,8 | inyeccion | alcanzable | fuera del codificador |
+|---|---|---|---|---|---|---|
+| mosca | 0.1003 ± 0.0001 | 0.7871 ± 0.0030 | 1.1608 ± 0.0153 | 0.088 ± 0.022 | 0.161 ± 0.012 | 0.040 ± 0.000 |
+| aleatorio | 0.1001 ± 0.0001 | 0.7701 ± 0.0045 | 1.1983 ± 0.0126 | 0.094 ± 0.015 | 0.219 ± 0.001 | 0.040 ± 0.000 |
+| recableado | 0.0999 ± 0.0000 | 0.7663 ± 0.0028 | 1.2208 ± 0.0104 | 0.092 ± 0.014 | 0.180 ± 0.008 | 0.040 ± 0.000 |
+| denso | 0.1008 ± 0.0001 | 0.7867 ± 0.0023 | 1.1483 ± 0.0063 | 0.077 ± 0.010 | 0.246 ± 0.015 | 0.040 ± 0.000 |
+| sin_nucleo | 0.1018 ± 0.0000 | 0.8216 ± 0.0006 | 1.0742 ± 0.0029 | 0.096 ± 0.004 | 0.146 ± 0.003 | 0.040 ± 0.000 |
+| fno | 0.0363 ± 0.0041 | 0.1124 ± 0.0029 | 5.0000 ± 0.0000 | 0.003 ± 0.001 | 0.006 ± 0.001 | 0.068 ± 0.003 |
+| persistencia | 0.1010 ± 0.0000 | 0.8866 ± 0.0000 | 1.0800 ± 0.0000 | 0.028 ± 0.000 | 0.019 ± 0.000 | 0.040 ± 0.000 |
+
+| contraste | diferencia (mosca - control) | p |
+|---|---|---|
+| L2 a un paso: mosca vs persistencia | -0.0007 | < 0.0001 |
+| L2 a un paso: mosca vs sin_nucleo | -0.0015 | < 0.0001 |
+| L2 a un paso: mosca vs aleatorio | +0.0002 | < 0.0001 |
+| L2 a un paso: mosca vs recableado | +0.0004 | < 0.0001 |
+| L2 en despliegue: mosca vs persistencia | -0.0995 | < 0.0001 |
+| L2 en despliegue: mosca vs sin_nucleo | -0.0345 | < 0.0001 |
+| L2 en despliegue: mosca vs aleatorio | +0.0170 | < 0.0001 |
+| L2 en despliegue: mosca vs recableado | +0.0208 | < 0.0001 |
+| tiempo hasta corr<0,8: mosca vs persistencia | +0.0808 | < 0.0001 |
+| tiempo hasta corr<0,8: mosca vs sin_nucleo | +0.0867 | < 0.0001 |
+| tiempo hasta corr<0,8: mosca vs aleatorio | -0.0375 | < 0.0001 |
+| tiempo hasta corr<0,8: mosca vs recableado | -0.0600 | < 0.0001 |
+
+\* la diferencia cae dentro de la variabilidad entre semillas.
+En L2 y en espectro, negativo es mejor para la mosca; en tiempo, positivo.
+<!-- /RESULTADOS -->
 
 ## Ejecutarlo
 

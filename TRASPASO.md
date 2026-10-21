@@ -8,9 +8,17 @@ tocar en el código, solo ejecutar en orden.
 antiguos; el codigo no cambio, pero 25 commits cambiaron de hash. Los documentos citan
 ya los nuevos. Los `.tar.gz` del bucket conservan el nombre de antes.
 
+**Al 21-10-2026, 19:32 (hora del PC): la tanda de fluidos ha terminado.** Los 18
+entrenamientos y `evaluate.py`, codigo 0. Resultado en RESULTADOS.md (seccion del
+21-10-2026, fases 4 y 5 a escala real): la mosca gana a la persistencia y a `sin_nucleo` y
+pierde contra el aleatorio y el recableado. Informes y figuras bajados a
+`artifacts/train_64_pc/`. El `eval_report.json` del PC estaba en cp1252 (Windows escribe
+asi por defecto); convertido, y `evaluate.py`, `train.py` y `benchmark.py` escriben ya en
+UTF-8. **El PC no tiene nada que ejecutar.**
+
 **Al 21-10-2026, tarde: la 6e ha terminado y esta leida** (11:55 UTC, codigo 0;
 veredicto en RESULTADOS.md: el reescalado espectral queda descartado como causa). Bajada
-en `artifacts/mario_proto_6e_row_gcp/`. **En el PC corre la tanda de fluidos** desde las
+en `artifacts/mario_proto_6e_row_gcp/`. **En el PC se lanzo la tanda de fluidos** a las
 17:48 (hora del PC): habia 15 de 18 hechos, no 8; faltaban `denso s0`, `fno s1` y
 `fno s2`, que reanudan de su instantanea. El lanzador
 (`artifacts/train_64/tanda_21oct.cmd`, en el PC) corre `scripts/tanda.sh` y despues
@@ -18,6 +26,10 @@ en `artifacts/mario_proto_6e_row_gcp/`. **En el PC corre la tanda de fluidos** d
 `eval_report.json` de antes quedan al lado como `*.antes_21oct.*`. El codigo de fluidos
 del PC (2772f6d) es identico al de HEAD. Se lanzo por SSH, no como tarea programada: si
 se corta la conexion, se relanza el mismo `.cmd` y sigue donde iba.
+
+**Google Cloud vaciado el 21-10-2026:** borradas las VMs `mosca-6c` y `mosca-6c-b` (con
+sus discos) y la imagen `mosca-6c-img`. Solo queda el bucket. Lo que se dice abajo de
+borrar VMs e imagen ya esta hecho.
 
 **Al 21-10-2026: la 6d ha terminado** (20-10, 17:20 UTC, codigo 0; veredicto en
 RESULTADOS.md, seccion del 21-10-2026). Todo lo del bucket esta bajado en

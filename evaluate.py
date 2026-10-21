@@ -548,7 +548,8 @@ def main() -> int:
         "pruebas_de_permutacion": pruebas,
         "tabla_markdown": tabla,
     }
-    (salida / "eval_report.json").write_text(json.dumps(informe, indent=2, ensure_ascii=False))
+    (salida / "eval_report.json").write_text(
+        json.dumps(informe, indent=2, ensure_ascii=False), encoding="utf-8")
 
     print("\n" + tabla)
     if pruebas:

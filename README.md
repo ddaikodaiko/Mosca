@@ -19,25 +19,30 @@ statistics?
 
 ## In short (21 Oct 2026)
 
-- **Across five tasks, the fly wiring never beats random wiring.** In the only task with
-  enough resolution to tell wirings apart (platform levels the model has never seen), it
-  **loses** to random wiring, under an analysis written as code before the data existed.
+- **Across six tasks, the fly wiring never beats random wiring.** In the two with enough
+  resolution to tell wirings apart, it **loses**. In full-scale fluids, the project's
+  original experiment (4,000 neurons, 64×64 grid, three seeds), its error over a 50-step
+  rollout is 2.2 % higher than the random wiring's and 2.7 % higher than the rewired
+  one's, with all three of its seeds behind all six control seeds. On platform levels the
+  model has never seen it loses to random wiring, under an analysis written as code before
+  the data existed.
+- **The fly wiring does something, just less than a random one.** In fluids it beats
+  doing nothing (11 % less error than persistence) and the no-connection control (4 %
+  less), but it sits between that control and the random wirings. The FNO, the upper
+  reference, has seven times less error than any wired network, as predicted.
 - **We found a design bias that penalises the fly.** To start every
   wiring in the same dynamical regime, the design scales the weights until the largest
   eigenvalue is 0.95. The fly has a core of neuron pairs connected both ways with many
   synapses, which inflates its largest eigenvalue; once that is scaled down, every other
   connection is **27 times weaker than in the random graph** (73 times with 4,000 neurons).
-  Its recurrence is nearly switched off, which fits with it tying a control that has no
-  connections at all. Equal spectral radius is not equal treatment.
-- <!-- 6E --> **But it is not what makes it lose.** Retrained with a normalisation that
+  Its recurrence is nearly switched off, which fits with it tying, on platforms, a control
+  that has no connections at all. Equal spectral radius is not equal treatment.
+- <!-- 6E --> **But it is not what makes it lose.** On platforms, retrained with a normalisation that
   equalises each neuron's input current (the fly's recurrence goes from 27 times more
   switched off to 4), the fly improves a little (0.462 → 0.503 progress) and the random
   wiring improves more (0.568 → 0.653): the gap does not close, it widens. Under the
   analysis written before the data, the rescaling is ruled out as the cause. Why the fly
   loses is still unmeasured. <!-- /6E -->
-- **Still missing:** the original full-scale fluid experiment (4,000 neurons, 64×64 grid)
-  is at 8 of 18 training runs, paused. With one seed, the fly does beat the no-connection
-  control there.
 
 Every number, including the ones that went wrong, is in [`RESULTADOS.md`](RESULTADOS.md)
 (Spanish). The comparison with the published literature is in
@@ -83,7 +88,7 @@ model shares. We have not found any other study that uses it.
 | Task | Learns by | Fly vs random / rewired | Core vs `sin_nucleo` |
 |---|---|---|---|
 | Navier–Stokes, rehearsal (500 neurons, 32×32) | supervised | tie / tie | 0.0004 less error: nothing |
-| Navier–Stokes, full scale (4,000, 64×64) | supervised | **pending**: 8 of 18 runs | seed 0: −4 % rollout error |
+| Navier–Stokes, full scale (4,000, 64×64) | supervised | **loses / loses** (rollout 0.787 vs 0.770 / 0.766) | wins: −4 % rollout error |
 | Own platformer | PPO from scratch | everyone stuck in "jump right"; closed without resolution | — |
 | Super Mario Bros (NES), level 1-1 | imitation with memory | tie (fly 0.98, random 0.98, rewired 1.00) | memory decides: 0.98 vs 0.32 |
 | NES, unseen levels | PPO | tie / unresolved | tie |
@@ -190,11 +195,46 @@ with almost no controls. Full report, each source labelled by review status:
 
 ## Status
 
-**Full-scale fluids:** 8 of 18 runs done (fly ×3, random ×3, rewired s0, `sin_nucleo` s0),
-paused since 23 Sep 2026. About 3 GPU hours left. It is the project's original question and
-the only task at 4,000 neurons.
+**Full-scale fluids: done (21 Oct 2026).** All 18 runs (six models × three seeds) on an
+RTX 3060 Ti. It is the project's original question and the only task at 4,000 neurons. The
+fly beats persistence and `sin_nucleo`, and loses to the random and rewired wirings on all
+three metrics (one-step error, rollout error and time to decorrelation), beyond the
+seed-to-seed variability; against the dense control it ties on rollout. The registered
+prediction was a tie: the sign is the opposite and the margin is small (0.02 on 0.77).
+There is a single random draw and a single rewiring. Details in
+[`RESULTADOS.md`](RESULTADOS.md) (Spanish), section of 21 Oct 2026.
 
 <!-- RESULTS -->
+Numbers from `configs/entrenamiento_64.yaml`, `test` split, 3 seed(s) per model, 50-step rollout. Mean ± std across seeds; spectral error by band, in log.
+
+| model | L2 one step | L2 rollout | t until corr<0.8 | injection | reachable | outside the encoder |
+|---|---|---|---|---|---|---|
+| mosca | 0.1003 ± 0.0001 | 0.7871 ± 0.0030 | 1.1608 ± 0.0153 | 0.088 ± 0.022 | 0.161 ± 0.012 | 0.040 ± 0.000 |
+| aleatorio | 0.1001 ± 0.0001 | 0.7701 ± 0.0045 | 1.1983 ± 0.0126 | 0.094 ± 0.015 | 0.219 ± 0.001 | 0.040 ± 0.000 |
+| recableado | 0.0999 ± 0.0000 | 0.7663 ± 0.0028 | 1.2208 ± 0.0104 | 0.092 ± 0.014 | 0.180 ± 0.008 | 0.040 ± 0.000 |
+| denso | 0.1008 ± 0.0001 | 0.7867 ± 0.0023 | 1.1483 ± 0.0063 | 0.077 ± 0.010 | 0.246 ± 0.015 | 0.040 ± 0.000 |
+| sin_nucleo | 0.1018 ± 0.0000 | 0.8216 ± 0.0006 | 1.0742 ± 0.0029 | 0.096 ± 0.004 | 0.146 ± 0.003 | 0.040 ± 0.000 |
+| fno | 0.0363 ± 0.0041 | 0.1124 ± 0.0029 | 5.0000 ± 0.0000 | 0.003 ± 0.001 | 0.006 ± 0.001 | 0.068 ± 0.003 |
+| persistencia | 0.1010 ± 0.0000 | 0.8866 ± 0.0000 | 1.0800 ± 0.0000 | 0.028 ± 0.000 | 0.019 ± 0.000 | 0.040 ± 0.000 |
+
+| contrast | difference (fly - control) | p |
+|---|---|---|
+| L2 one step: fly vs persistencia | -0.0007 | < 0.0001 |
+| L2 one step: fly vs sin_nucleo | -0.0015 | < 0.0001 |
+| L2 one step: fly vs aleatorio | +0.0002 | < 0.0001 |
+| L2 one step: fly vs recableado | +0.0004 | < 0.0001 |
+| L2 rollout: fly vs persistencia | -0.0995 | < 0.0001 |
+| L2 rollout: fly vs sin_nucleo | -0.0345 | < 0.0001 |
+| L2 rollout: fly vs aleatorio | +0.0170 | < 0.0001 |
+| L2 rollout: fly vs recableado | +0.0208 | < 0.0001 |
+| time until corr<0.8: fly vs persistencia | +0.0808 | < 0.0001 |
+| time until corr<0.8: fly vs sin_nucleo | +0.0867 | < 0.0001 |
+| time until corr<0.8: fly vs aleatorio | -0.0375 | < 0.0001 |
+| time until corr<0.8: fly vs recableado | -0.0600 | < 0.0001 |
+
+\* the difference falls within the variability across seeds.
+For L2 and spectrum, negative favours the fly; for time, positive does.
+<!-- /RESULTS -->
 
 ## Run it
 
