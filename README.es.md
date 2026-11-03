@@ -18,6 +18,8 @@ estadísticas?
 > **No es una mosca.** Nada de esto es una mosca ni un modelo de cómo piensa una mosca. El
 > conectoma se usa como plano de una red artificial.
 
+**Stack:** Python · PyTorch · NumPy · SciPy · entrenado en una RTX 3060 Ti y en VMs de Google Cloud (`scripts/gcp/`)
+
 ## En corto (21-10-2026)
 
 - **En seis tareas, el cableado de la mosca no le gana a ningún cableado aleatorio.** En las

@@ -17,6 +17,8 @@ statistics?
 > **Not a fly.** Nothing here is a fly or a model of how a fly thinks. The connectome is used
 > as the blueprint of an artificial network.
 
+**Stack:** Python · PyTorch · NumPy · SciPy · trained on an RTX 3060 Ti and on Google Cloud VMs (`scripts/gcp/`)
+
 ## In short (21 Oct 2026)
 
 - **Across six tasks, the fly wiring never beats random wiring.** In the two with enough
